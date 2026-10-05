@@ -399,6 +399,7 @@ export function createGeneration2(ctx) {
   const {
     state,
     hasPermission,
+    effectiveClearance,
     nextId,
     audit,
     safeCollection,
@@ -414,7 +415,7 @@ export function createGeneration2(ctx) {
       if (config.classified && state.profile?.isSystemOwner !== true) {
         const snap = await getDocs(query(
           collection(db, config.collection),
-          where("minimumClearance", "<=", Number(state.profile?.clearanceLevel || 0)),
+          where("minimumClearance", "<=", effectiveClearance()),
           limit(150)
         ));
         return snap.docs
