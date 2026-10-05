@@ -516,18 +516,50 @@ export function createGeneration2(ctx) {
       <div class="page">
         ${pageHeader(config.title, config.subtitle, canManage ? `<button class="btn btn-primary" data-create> ${esc(config.createLabel)} </button>` : "")}
         <section class="card">
-          <div class="card-head"><div><h2>${esc(config.title)} registry</h2><p>${records.length} record${records.length === 1 ? "" : "s"} visible</p></div></div>
+          <div class="card-head registry-head">
+            <div><h2>${esc(config.title)} registry</h2><p><span data-registry-count>${records.length}</span> of ${records.length} record${records.length === 1 ? "" : "s"} visible</p></div>
+            ${records.length ? `<div class="registry-tools">
+              <div class="registry-search"><span>⌕</span><input class="input" type="search" data-registry-search placeholder="Search ${esc(config.title.toLowerCase())}…" /></div>
+              <select class="select registry-filter" data-registry-status>
+                <option value="">All statuses</option>
+                ${[...new Set(records.map(record=>record.status).filter(Boolean))].sort().map(status=>`<option value="${esc(String(status).toLowerCase())}">${esc(status)}</option>`).join("")}
+              </select>
+            </div>` : ""}
+          </div>
           ${records.length ? `
             <div class="table-wrap"><table class="table">
               <thead><tr>${config.columns.map(c => `<th>${esc(c[0])}</th>`).join("")}</tr></thead>
-              <tbody>${records.map(record => `<tr data-record="${esc(record.id)}" style="cursor:pointer">${config.columns.map(c => `<td>${c[1](record, refs)}</td>`).join("")}</tr>`).join("")}</tbody>
+              <tbody>${records.map(record => `<tr data-registry-row data-record="${esc(record.id)}" data-status="${esc(String(record.status||"").toLowerCase())}" style="cursor:pointer">${config.columns.map(c => `<td>${c[1](record, refs)}</td>`).join("")}</tr>`).join("")}</tbody>
             </table></div>
+            <div class="empty compact" data-registry-empty hidden><strong>No matching records</strong><p>Adjust the search or status filter.</p></div>
           ` : `<div class="empty"><strong>No ${esc(config.title.toLowerCase())} yet</strong><p>${canManage ? "Create the first record to begin." : "No records are currently visible to your account."}</p></div>`}
         </section>
       </div>
     `;
 
     target.querySelector("[data-create]")?.addEventListener("click", () => editRegistryRecord(config));
+
+    const registrySearch = target.querySelector("[data-registry-search]");
+    const registryStatus = target.querySelector("[data-registry-status]");
+    const registryCount = target.querySelector("[data-registry-count]");
+    const registryEmpty = target.querySelector("[data-registry-empty]");
+    const applyRegistryFilters = () => {
+      const term = String(registrySearch?.value || "").trim().toLowerCase();
+      const status = String(registryStatus?.value || "").toLowerCase();
+      let visible = 0;
+      target.querySelectorAll("[data-registry-row]").forEach(row => {
+        const matchesTerm = !term || row.textContent.toLowerCase().includes(term);
+        const matchesStatus = !status || row.dataset.status === status;
+        const show = matchesTerm && matchesStatus;
+        row.hidden = !show;
+        if (show) visible++;
+      });
+      if (registryCount) registryCount.textContent = visible;
+      if (registryEmpty) registryEmpty.hidden = visible !== 0;
+    };
+    registrySearch?.addEventListener("input", applyRegistryFilters);
+    registryStatus?.addEventListener("change", applyRegistryFilters);
+
     target.querySelectorAll("[data-record]").forEach(row => {
       row.addEventListener("click", () => {
         const record = records.find(r => r.id === row.dataset.record);
