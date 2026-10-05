@@ -577,6 +577,33 @@ test("temporary access requests cannot ask for owner-level authority", async () 
   }));
 });
 
+test("customer lock management cannot be granted temporarily", async () => {
+  await seedProfile("securitylock", {
+    employeeId: "EMP-SECLOCK",
+    permissions: ["access.temporary.manage"],
+    clearanceLevel: 8,
+    roles: ["SECURITY_ADMIN"]
+  });
+  await seedProfile("locktarget", {
+    employeeId: "EMP-LOCKTARGET",
+    permissions: [],
+    clearanceLevel: 2
+  });
+
+  const db = env.authenticatedContext("securitylock").firestore();
+  await assertFails(setDoc(doc(db, "temporaryAccess", "locktarget"), {
+    userId: "locktarget",
+    employeeId: "EMP-LOCKTARGET",
+    permissions: ["customer.lock.manage"],
+    clearanceLevel: 8,
+    active: true,
+    grantedByUid: "securitylock",
+    grantedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    expiresAt: Timestamp.fromMillis(Date.now() + 60 * 60 * 1000)
+  }));
+});
+
 test("temporary-access managers cannot self-grant or exceed 24 hours", async () => {
   await seedProfile("security", {
     employeeId: "EMP-SECURITY",
