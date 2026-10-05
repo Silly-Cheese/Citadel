@@ -89,7 +89,7 @@ const MODULES = {
       ["Asset", r => cell(r.name || r.assetType || "Asset", r.assetId)],
       ["Category", r => esc(r.assetType || "General")],
       ["Status", r => statusBadge(r.status || "Available")],
-      ["Assigned", r => esc(r.assignedEmployeeId || "Unassigned")],
+      ["Assigned", (r,refs) => esc(employeeLabel(refs,r.assignedEmployeeId))],
       ["Serial / Tag", r => esc(r.serialNumber || r.assetTag || "—")],
       ["Updated", r => esc(fmtDate(r.updatedAt || r.createdAt))]
     ],
@@ -100,7 +100,7 @@ const MODULES = {
       { name: "assetTag", label: "Asset tag" },
       { name: "status", label: "Status", type: "select", options: ["Available","Assigned","In Service","Repair","Lost","Retired"] },
       { name: "assignedEmployeeId", label: "Assigned employee", type: "employee" },
-      { name: "location", label: "Location" },
+      { name: "location", label: "Location", type: "location" },
       { name: "notes", label: "Notes", type: "textarea", span: 2 }
     ]
   },
@@ -124,7 +124,7 @@ const MODULES = {
     ],
     fields: [
       { name: "name", label: "Vendor name", required: true },
-      { name: "category", label: "Category" },
+      { name: "category", label: "Category", type: "select", options: ["Technology","Facilities","Professional Services","Office Supplies","Fleet","Marketing","Financial","Legal","Training","Other"] },
       { name: "status", label: "Status", type: "select", options: ["Active","Prospective","Restricted","Inactive"] },
       { name: "riskLevel", label: "Risk level", type: "select", options: ["Low","Moderate","High","Critical"] },
       { name: "contactName", label: "Primary contact" },
@@ -147,16 +147,15 @@ const MODULES = {
     singular: "contract",
     columns: [
       ["Contract", r => cell(r.title || "Contract", r.contractId)],
-      ["Vendor", r => esc(r.vendorId || r.vendorName || "—")],
+      ["Vendor", (r,refs) => esc(vendorLabel(refs,r.vendorId,r.vendorName || "—"))],
       ["Status", r => statusBadge(r.status || "Draft")],
       ["Value", r => money(r.value)],
-      ["Owner", r => esc(r.ownerEmployeeId || "—")],
+      ["Owner", (r,refs) => esc(employeeLabel(refs,r.ownerEmployeeId,"—"))],
       ["Renewal", r => esc(r.renewalDate || "—")]
     ],
     fields: [
       { name: "title", label: "Contract title", required: true, span: 2 },
       { name: "vendorId", label: "Vendor", type: "vendor" },
-      { name: "vendorName", label: "Vendor name" },
       { name: "status", label: "Status", type: "select", options: ["Draft","Review","Active","Expiring","Expired","Terminated"] },
       { name: "value", label: "Contract value", type: "number" },
       { name: "startDate", label: "Start date", type: "date" },
@@ -216,7 +215,7 @@ const MODULES = {
     ],
     fields: [
       { name: "title", label: "Document title", required: true, span: 2 },
-      { name: "documentType", label: "Document type" },
+      { name: "documentType", label: "Document type", type: "select", options: ["Policy","Procedure","Contract","Form","Report","Memo","Guide","Legal","Financial","Technical","Other"] },
       { name: "status", label: "Status", type: "select", options: ["Draft","Active","Superseded","Archived","Legal Hold"] },
       { name: "classification", label: "Classification", type: "select", options: ["INTERNAL","CONFIDENTIAL","SENSITIVE","RESTRICTED","HIGHLY_RESTRICTED"] },
       { name: "ownerEmployeeId", label: "Owner", type: "employee" },
@@ -239,7 +238,7 @@ const MODULES = {
       ["Audience", r => esc(r.audience || "All Employees")],
       ["Priority", r => statusBadge(r.priority || "Normal")],
       ["Status", r => statusBadge(r.status || "Published")],
-      ["Author", r => esc(r.authorEmployeeId || "—")],
+      ["Author", (r,refs) => esc(employeeLabel(refs,r.authorEmployeeId,"—"))],
       ["Created", r => esc(fmtDate(r.createdAt))]
     ],
     fields: [
@@ -267,7 +266,7 @@ const MODULES = {
       ["Likelihood", r => statusBadge(r.likelihood || "Possible")],
       ["Impact", r => statusBadge(r.impact || "Moderate")],
       ["Status", r => statusBadge(r.status || "Open")],
-      ["Owner", r => esc(r.ownerEmployeeId || "Unassigned")]
+      ["Owner", (r,refs) => esc(employeeLabel(refs,r.ownerEmployeeId))]
     ],
     fields: [
       { name: "title", label: "Risk title", required: true, span: 2 },
@@ -297,7 +296,7 @@ const MODULES = {
       ["Type", r => esc(r.investigationType || "Internal")],
       ["Status", r => statusBadge(r.status || "Open")],
       ["Classification", r => classificationBadge(r.classification || "RESTRICTED")],
-      ["Lead", r => esc(r.leadEmployeeId || "Unassigned")],
+      ["Lead", (r,refs) => esc(employeeLabel(refs,r.leadEmployeeId))],
       ["Opened", r => esc(fmtDate(r.createdAt))]
     ],
     fields: [
@@ -343,6 +342,24 @@ const MODULES = {
 
 function cell(primary, secondary = "") {
   return `<div class="primary-cell">${esc(primary)}</div>${secondary ? `<div class="secondary">${esc(secondary)}</div>` : ""}`;
+}
+
+function employeeLabel(refs, employeeId, fallback = "Unassigned") {
+  if (!employeeId) return fallback;
+  const employee = (refs?.employees || []).find(item => String(item.employeeId || item.id) === String(employeeId));
+  return employee?.displayName || fallback;
+}
+
+function employeeContext(refs, employeeId) {
+  if (!employeeId) return "";
+  const employee = (refs?.employees || []).find(item => String(item.employeeId || item.id) === String(employeeId));
+  return employee ? [employee.positionName, employee.departmentName].filter(Boolean).join(" · ") : "";
+}
+
+function vendorLabel(refs, vendorId, fallback = "—") {
+  if (!vendorId) return fallback;
+  const vendor = (refs?.vendors || []).find(item => String(item.vendorId || item.id) === String(vendorId));
+  return vendor?.name || fallback;
 }
 
 function money(value) {
@@ -492,7 +509,7 @@ export function createGeneration2(ctx) {
 
   async function renderRegistry(target, key) {
     const config = MODULES[key];
-    const records = await recordsForAccess(config);
+    const [records, refs] = await Promise.all([recordsForAccess(config), loadReferences()]);
     const canManage = hasPermission(config.manage);
 
     target.innerHTML = `
@@ -503,7 +520,7 @@ export function createGeneration2(ctx) {
           ${records.length ? `
             <div class="table-wrap"><table class="table">
               <thead><tr>${config.columns.map(c => `<th>${esc(c[0])}</th>`).join("")}</tr></thead>
-              <tbody>${records.map(record => `<tr data-record="${esc(record.id)}" style="cursor:pointer">${config.columns.map(c => `<td>${c[1](record)}</td>`).join("")}</tr>`).join("")}</tbody>
+              <tbody>${records.map(record => `<tr data-record="${esc(record.id)}" style="cursor:pointer">${config.columns.map(c => `<td>${c[1](record, refs)}</td>`).join("")}</tr>`).join("")}</tbody>
             </table></div>
           ` : `<div class="empty"><strong>No ${esc(config.title.toLowerCase())} yet</strong><p>${canManage ? "Create the first record to begin." : "No records are currently visible to your account."}</p></div>`}
         </section>
@@ -553,6 +570,9 @@ export function createGeneration2(ctx) {
               ? "announcementId"
               : config.singular + "Id";
             const ref = doc(collection(db, config.collection));
+            if (config.collection === "announcements") {
+              data.authorEmployeeId = state.employee?.employeeId || null;
+            }
             await setDoc(ref, {
               ...data,
               [humanField]: humanId,
@@ -689,6 +709,7 @@ export function createGeneration2(ctx) {
 
   async function renderHR(target) {
     const canHR = hasPermission("hr.view");
+    const refs = await loadReferences();
     const leaveSnap = canHR
       ? await safeCollection("leaveRequests", 100)
       : await getDocs(query(collection(db, "leaveRequests"), where("requesterUid", "==", state.user.uid), limit(100)))
@@ -703,17 +724,17 @@ export function createGeneration2(ctx) {
           <div class="kpi-card"><div class="kpi-label">Leave requests</div><div class="kpi-value">${leaveSnap.length ?? 0}</div><div class="kpi-meta">${canHR ? "Organization-visible queue" : "Your requests"}</div></div>
           <div class="kpi-card"><div class="kpi-label">Performance reviews</div><div class="kpi-value">${reviews.length}</div><div class="kpi-meta">Recent review records</div></div>
           <div class="kpi-card"><div class="kpi-label">Employee relations</div><div class="kpi-value">${discipline.length}</div><div class="kpi-meta">Controlled personnel actions</div></div>
-          <div class="kpi-card"><div class="kpi-label">Your employee ID</div><div class="kpi-value kpi-small">${esc(state.employee?.employeeId || "—")}</div><div class="kpi-meta">Citadel personnel identity</div></div>
+          <div class="kpi-card"><div class="kpi-label">Your department</div><div class="kpi-value kpi-small">${esc(state.employee?.departmentName || "—")}</div><div class="kpi-meta">${esc(state.employee?.positionName || "Employee")}</div></div>
         </div>
         <div class="grid-2">
           <section class="card">
             <div class="card-head"><div><h2>Leave queue</h2><p>Time-off requests and decisions</p></div></div>
             ${leaveSnap.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Status</th><th>Submitted</th></tr></thead><tbody>
-              ${leaveSnap.map(r=>`<tr data-leave-record="${esc(r.id)}" style="${hasPermission("hr.manage") ? "cursor:pointer" : ""}"><td>${esc(r.requesterEmployeeId || "—")}</td><td class="primary-cell">${esc(r.leaveType || "Leave")}</td><td>${esc(r.startDate || "—")} → ${esc(r.endDate || "—")}</td><td>${statusBadge(r.status || "Pending")}</td><td>${esc(fmtDate(r.createdAt))}</td></tr>`).join("")}
+              ${leaveSnap.map(r=>`<tr data-leave-record="${esc(r.id)}" style="${hasPermission("hr.manage") ? "cursor:pointer" : ""}"><td><div class="primary-cell">${esc(employeeLabel(refs,r.requesterEmployeeId,"Employee"))}</div><div class="secondary">${esc(employeeContext(refs,r.requesterEmployeeId))}</div></td><td class="primary-cell">${esc(r.leaveType || "Leave")}</td><td>${esc(r.startDate || "—")} → ${esc(r.endDate || "—")}</td><td>${statusBadge(r.status || "Pending")}</td><td>${esc(fmtDate(r.createdAt))}</td></tr>`).join("")}
             </tbody></table></div>` : '<div class="empty"><strong>No leave requests</strong><p>Leave requests will appear here.</p></div>'}
           </section>
           <section class="card">
-            <div class="card-head"><div><h2>Personnel controls</h2><p>Generation 2 HR capabilities</p></div></div>
+            <div class="card-head"><div><h2>Personnel controls</h2><p>Core personnel operations</p></div></div>
             <div class="list">
               <div class="list-row"><div class="grow"><strong>Performance management</strong><span>Formal reviews with rating, period, reviewer, and narrative.</span></div>${canHR ? '<span class="badge success">Available</span>' : '<span class="badge">Restricted</span>'}</div>
               <div class="list-row"><div class="grow"><strong>Employee relations</strong><span>Controlled disciplinary and corrective-action records.</span></div>${canHR ? '<span class="badge success">Available</span>' : '<span class="badge">Restricted</span>'}</div>
@@ -730,17 +751,17 @@ export function createGeneration2(ctx) {
     if (hasPermission("hr.manage")) {
       target.querySelectorAll("[data-leave-record]").forEach(row => row.addEventListener("click", () => {
         const record = leaveSnap.find(r => r.id === row.dataset.leaveRecord);
-        if (record) manageLeaveModal(record);
+        if (record) manageLeaveModal(record, refs);
       }));
     }
   }
 
-  function manageLeaveModal(record) {
+  function manageLeaveModal(record, refs = {employees:[]}) {
     openModal({
-      title: `Review leave · ${record.leaveId || record.requesterEmployeeId || ""}`,
+      title: `Review leave · ${employeeLabel(refs,record.requesterEmployeeId,"Employee")}`,
       submitLabel: "Save decision",
       body: `
-        <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.requesterEmployeeId || "Employee")}</strong>${esc(record.leaveType || "Leave")} · ${esc(record.startDate || "—")} → ${esc(record.endDate || "—")}</div></div>
+        <div class="notice" style="margin-bottom:16px"><div><strong>${esc(employeeLabel(refs,record.requesterEmployeeId,"Employee"))}</strong>${esc(record.leaveType || "Leave")} · ${esc(record.startDate || "—")} → ${esc(record.endDate || "—")}</div></div>
         <div class="form-grid">
           <div class="field"><label>Status</label><select class="select" name="status">${["Pending","Approved","Denied","Cancelled"].map(v=>`<option ${record.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
           <div class="field"><label>Decision note</label><input class="input" name="decisionNote" value="${esc(record.decisionNote || "")}" /></div>
@@ -1040,7 +1061,7 @@ export function createGeneration2(ctx) {
           <div class="kpi-card"><div class="kpi-label">Approved</div><div class="kpi-value">${requests.filter(r=>r.status==="Approved").length}</div><div class="kpi-meta">Authorized purchases</div></div>
           <div class="kpi-card"><div class="kpi-label">Requested value</div><div class="kpi-value kpi-small">${money(requests.reduce((s,r)=>s+Number(r.estimatedCost||0),0))}</div><div class="kpi-meta">Visible request total</div></div>
         </div>
-        <section class="card"><div class="card-head"><div><h2>${canViewAll?"Purchase request queue":"My purchase requests"}</h2><p>Generation 2 procurement lifecycle</p></div></div>
+        <section class="card"><div class="card-head"><div><h2>${canViewAll?"Purchase request queue":"My purchase requests"}</h2><p>Purchase, sourcing, and fulfillment lifecycle</p></div></div>
         ${requests.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Request</th><th>Department</th><th>Cost</th><th>Vendor</th><th>Status</th><th>Requester</th></tr></thead><tbody>
           ${requests.map(r=>`<tr data-purchase-record="${esc(r.id)}" style="${hasPermission("procurement.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Purchase",r.purchaseRequestId)}</td><td>${esc(r.department||"—")}</td><td>${money(r.estimatedCost)}</td><td>${esc(r.preferredVendor||"Open sourcing")}</td><td>${statusBadge(r.status||"Submitted")}</td><td>${esc(r.requesterEmployeeId||"—")}</td></tr>`).join("")}
         </tbody></table></div>`:'<div class="empty"><strong>No purchase requests</strong><p>Submit a purchase request to begin the procurement workflow.</p></div>'}</section>
