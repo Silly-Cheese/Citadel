@@ -358,7 +358,10 @@ service cloud.firestore {
           || classifiedRecordAllowed(resource.data)
         )
         && validClassification(request.resource.data)
-        && classificationAllowed(request.resource.data.classification);
+        && classificationAllowed(request.resource.data.classification)
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
 
       allow delete: if false;
     }
@@ -391,7 +394,11 @@ service cloud.firestore {
         && (
           hasPermission("customer.restrict")
           || hasPermission("customer.edit")
-        );
+        )
+        && request.resource.data.customerRecordId == resource.data.customerRecordId
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
 
       allow delete: if false;
     }
@@ -400,13 +407,22 @@ service cloud.firestore {
       allow read: if hasPermission("case.view");
 
       allow create: if hasPermission("case.create")
-        && request.resource.data.createdBy == uid();
+        && request.resource.data.createdBy == uid()
+        && request.resource.data.assignedUid == uid()
+        && request.resource.data.caseId is string
+        && request.resource.data.status in ["New", "Open", "In Progress", "Pending Customer", "Pending Internal", "Escalated"];
 
-      allow update: if hasPermission("case.assign")
-        || (
-          hasPermission("case.create")
-          && resource.data.assignedUid == uid()
-        );
+      allow update: if (
+          hasPermission("case.assign")
+          || (
+            hasPermission("case.create")
+            && resource.data.assignedUid == uid()
+          )
+        )
+        && request.resource.data.caseId == resource.data.caseId
+        && request.resource.data.customerId == resource.data.customerId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
 
       allow delete: if false;
     }
@@ -483,10 +499,13 @@ service cloud.firestore {
       allow read: if canUseCounter(counterId);
 
       allow create: if canUseCounter(counterId)
-        && request.resource.data.value == 1;
+        && request.resource.data.value == 1
+        && request.resource.data.updatedAt == request.time;
 
       allow update: if canUseCounter(counterId)
-        && request.resource.data.value == resource.data.value + 1;
+        && request.resource.data.value == resource.data.value + 1
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["value", "updatedAt"]);
 
       allow delete: if false;
     }
@@ -829,10 +848,32 @@ service cloud.firestore {
 
       allow create: if hasPermission("access.request")
         && request.resource.data.requesterUid == uid()
-        && request.resource.data.status == "Pending";
+        && request.resource.data.requesterEmployeeId == profile().employeeId
+        && request.resource.data.status == "Pending"
+        && request.resource.data.requestedPermissions is list
+        && !request.resource.data.requestedPermissions.hasAny([
+          "system.manage",
+          "access.manage",
+          "access.temporary.manage",
+          "security.manage",
+          "employee.manage",
+          "organization.manage",
+          "admin.organization.manage"
+        ])
+        && request.resource.data.requestedClearance is int
+        && request.resource.data.requestedClearance >= 0
+        && request.resource.data.requestedClearance <= 9
+        && request.resource.data.requestedHours is int
+        && request.resource.data.requestedHours >= 1
+        && request.resource.data.requestedHours <= 24;
 
       allow update: if hasPermanentPermission("access.temporary.manage")
-        && clearanceAtLeast(8);
+        && clearanceAtLeast(8)
+        && resource.data.status == "Pending"
+        && request.resource.data.status in ["Approved", "Denied"]
+        && request.resource.data.requesterUid == resource.data.requesterUid
+        && request.resource.data.requesterEmployeeId == resource.data.requesterEmployeeId
+        && request.resource.data.createdAt == resource.data.createdAt;
 
       allow delete: if false;
     }
@@ -847,9 +888,12 @@ service cloud.firestore {
           )
         );
 
-      allow create, update: if hasPermanentPermission("access.temporary.manage")
+      allow create: if hasPermanentPermission("access.temporary.manage")
         && clearanceAtLeast(8)
+        && (isSystemOwner() || userId != uid())
         && request.resource.data.userId == userId
+        && request.resource.data.grantedByUid == uid()
+        && request.resource.data.active == true
         && request.resource.data.clearanceLevel is int
         && request.resource.data.clearanceLevel >= 0
         && request.resource.data.clearanceLevel <= 9
@@ -863,7 +907,38 @@ service cloud.firestore {
           "organization.manage",
           "admin.organization.manage"
         ])
-        && request.resource.data.expiresAt is timestamp;
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(24, "h");
+
+      allow update: if hasPermanentPermission("access.temporary.manage")
+        && clearanceAtLeast(8)
+        && (isSystemOwner() || userId != uid())
+        && request.resource.data.userId == userId
+        && resource.data.userId == userId
+        && request.resource.data.clearanceLevel is int
+        && request.resource.data.clearanceLevel >= 0
+        && request.resource.data.clearanceLevel <= 9
+        && request.resource.data.permissions is list
+        && !request.resource.data.permissions.hasAny([
+          "system.manage",
+          "access.manage",
+          "access.temporary.manage",
+          "security.manage",
+          "employee.manage",
+          "organization.manage",
+          "admin.organization.manage"
+        ])
+        && request.resource.data.expiresAt is timestamp
+        && (
+          request.resource.data.active == false
+          || (
+            request.resource.data.active == true
+            && request.resource.data.grantedByUid == uid()
+            && request.resource.data.expiresAt > request.time
+            && request.resource.data.expiresAt <= request.time + duration.value(24, "h")
+          )
+        );
 
       allow delete: if false;
     }
