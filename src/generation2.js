@@ -362,12 +362,18 @@ function classificationLevel(value = "STANDARD") {
   return levels[String(value).toUpperCase()] ?? 0;
 }
 
-function asMillis(value) {
+function asDate(value) {
+  if (!value) return null;
   try {
-    return value?.toMillis ? value.toMillis() : new Date(value || 0).getTime();
+    return value?.toDate ? value.toDate() : new Date(value);
   } catch {
-    return 0;
+    return null;
   }
+}
+
+function asMillis(value) {
+  const date = asDate(value);
+  return date && !Number.isNaN(date.getTime()) ? date.getTime() : 0;
 }
 
 function fieldHtml(field, value = "") {
@@ -874,8 +880,12 @@ export function createGeneration2(ctx) {
         ${pageHeader("Service Desk", "Internal IT, HR, Facilities, Security, Access, and corporate service requests.", hasPermission("service.create") ? '<button class="btn btn-primary" data-ticket>New request</button>' : "")}
         <section class="card">
           <div class="card-head"><div><h2>${canViewAll ? "Service queue" : "My requests"}</h2><p>${records.length} ticket${records.length===1?"":"s"}</p></div></div>
-          ${records.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Request</th><th>Catalog</th><th>Priority</th><th>Status</th><th>Requester</th><th>Updated</th></tr></thead><tbody>
-            ${records.map(r=>`<tr data-service-record="${esc(r.id)}" style="${hasPermission("service.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Request",r.ticketId)}</td><td>${esc(r.catalog||"General")}</td><td>${statusBadge(r.priority||"Normal")}</td><td>${statusBadge(r.status||"New")}</td><td>${esc(r.requesterEmployeeId||"—")}</td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`).join("")}
+          ${records.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Request</th><th>Catalog</th><th>Priority</th><th>Status</th><th>SLA</th><th>Requester</th><th>Updated</th></tr></thead><tbody>
+            ${records.map(r=>{
+              const due=asDate(r.slaDueAt);
+              const breached=due&&due.getTime()<Date.now()&&!["Resolved","Closed","Cancelled"].includes(r.status);
+              return `<tr data-service-record="${esc(r.id)}" style="${hasPermission("service.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Request",r.ticketId)}</td><td>${esc(r.catalog||"General")}</td><td>${statusBadge(r.priority||"Normal")}</td><td>${statusBadge(r.status||"New")}</td><td>${r.slaDueAt?statusBadge(breached?"Breached":"On Track"):'<span class="badge">Not set</span>'}</td><td>${esc(r.requesterEmployeeId||"—")}</td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`;
+            }).join("")}
           </tbody></table></div>` : '<div class="empty"><strong>No service requests</strong><p>Use New Request for IT, HR, Facilities, Security, Access, Procurement, or other internal support.</p></div>'}
         </section>
       </div>
@@ -935,13 +945,17 @@ export function createGeneration2(ctx) {
         try{
           const ticketId=await nextId("serviceTickets","TKT");
           const ref=doc(collection(db,"serviceTickets"));
+          const priority=String(fd.get("priority")||"Normal");
+          const slaHours=priority==="Critical"?4:priority==="High"?8:priority==="Low"?72:24;
           await setDoc(ref,{
             ticketId,
             title:String(fd.get("title")||"").trim(),
             catalog:String(fd.get("catalog")||"Other"),
-            priority:String(fd.get("priority")||"Normal"),
+            priority,
             description:String(fd.get("description")||"").trim(),
             status:"New",
+            slaHours,
+            slaDueAt:new Date(Date.now()+slaHours*3600000),
             requesterUid:state.user.uid,
             requesterEmployeeId:state.employee?.employeeId||null,
             assignedEmployeeId:null,
