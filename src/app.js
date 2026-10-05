@@ -495,7 +495,7 @@ function renderShell() {
   app.querySelector("#global-search").addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     state.search = event.currentTarget.value.trim();
-    navigate("customers");
+    navigate("search");
   });
 
   renderPage();
@@ -517,6 +517,7 @@ async function renderPage() {
       cases: renderCases,
       people: renderPeople,
       approvals: renderApprovals,
+      search: renderGlobalSearch,
       security: renderSecurity,
       admin: renderAdmin,
       ...generation2.renderers
@@ -543,6 +544,93 @@ function pageHeader(title, subtitle, actions = "") {
     <div><div class="eyebrow">Citadel</div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div>
     <div class="page-actions">${actions}</div>
   </div>`;
+}
+
+async function renderGlobalSearch(target) {
+  const term = state.search.trim().toLowerCase();
+
+  if (!term) {
+    target.innerHTML = `
+      <div class="page">
+        ${pageHeader("Search", "Search across the Citadel records your account is authorized to discover.")}
+        <div class="empty"><strong>Enter a search term</strong><p>Search by name, Citadel ID, email, title, customer ID, asset tag, or other record identifier.</p></div>
+      </div>
+    `;
+    return;
+  }
+
+  const [customerSnap, employees, cases, assets, vendors, projects] = await Promise.all([
+    hasPermission("customer.view") ? customerQuery() : Promise.resolve({ docs: [] }),
+    hasPermission("employee.view") ? safeCollection("employees", 150) : Promise.resolve([]),
+    hasPermission("case.view") ? safeCollection("cases", 150) : Promise.resolve([]),
+    hasPermission("asset.view") ? safeCollection("assets", 150) : Promise.resolve([]),
+    hasPermission("vendor.view") ? safeCollection("vendors", 150) : Promise.resolve([]),
+    hasPermission("project.view") ? safeCollection("projects", 150) : Promise.resolve([])
+  ]);
+
+  const customers = customerSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const filter = (records, fields) => records.filter((record) =>
+    fields.some((field) => String(record[field] || "").toLowerCase().includes(term))
+  ).slice(0, 20);
+
+  const employeeMatches = filter(employees, ["employeeId","displayName","workEmail","positionName","departmentName"]);
+  const caseMatches = filter(cases, ["caseId","title","customerId","category","assignedEmployeeId"]);
+  const assetMatches = filter(assets, ["assetId","name","serialNumber","assetTag","assignedEmployeeId"]);
+  const vendorMatches = filter(vendors, ["vendorId","name","email","category","contactName"]);
+  const projectMatches = filter(projects, ["projectId","name","ownerEmployeeId","department","summary"]);
+
+  const groups = [
+    {
+      label: "Customers",
+      route: "customers",
+      records: customers.slice(0,20),
+      row: r => `<div class="grow"><strong>${esc(customerDisplayName(r))}</strong><span>${esc(r.customerId || "—")} · ${esc(r.email || "")}</span></div>${classificationBadge(r.classification || "STANDARD")}`
+    },
+    {
+      label: "Employees",
+      route: "people",
+      records: employeeMatches,
+      row: r => `<div class="grow"><strong>${esc(r.displayName || "Employee")}</strong><span>${esc(r.employeeId || "—")} · ${esc(r.positionName || "")}</span></div><span class="badge">C${Number(r.clearanceLevel || 0)}</span>`
+    },
+    {
+      label: "Cases",
+      route: "cases",
+      records: caseMatches,
+      row: r => `<div class="grow"><strong>${esc(r.title || "Case")}</strong><span>${esc(r.caseId || "—")} · ${esc(r.customerId || "")}</span></div>${statusBadge(r.status || "Open")}`
+    },
+    {
+      label: "Assets",
+      route: "assets",
+      records: assetMatches,
+      row: r => `<div class="grow"><strong>${esc(r.name || "Asset")}</strong><span>${esc(r.assetId || "—")} · ${esc(r.assetTag || r.serialNumber || "")}</span></div>${statusBadge(r.status || "Available")}`
+    },
+    {
+      label: "Vendors",
+      route: "vendors",
+      records: vendorMatches,
+      row: r => `<div class="grow"><strong>${esc(r.name || "Vendor")}</strong><span>${esc(r.vendorId || "—")} · ${esc(r.category || "")}</span></div>${statusBadge(r.status || "Active")}`
+    },
+    {
+      label: "Projects",
+      route: "projects",
+      records: projectMatches,
+      row: r => `<div class="grow"><strong>${esc(r.name || "Project")}</strong><span>${esc(r.projectId || "—")} · ${esc(r.ownerEmployeeId || "")}</span></div>${statusBadge(r.status || "Planning")}`
+    }
+  ].filter((g) => g.records.length);
+
+  target.innerHTML = `
+    <div class="page">
+      ${pageHeader("Search", `Authorized results for “${state.search}”`)}
+      ${groups.length ? `<div class="section-stack">${groups.map((group) => `
+        <section class="card">
+          <div class="card-head"><div><h2>${esc(group.label)}</h2><p>${group.records.length} result${group.records.length === 1 ? "" : "s"}</p></div><button class="btn btn-sm" data-search-route="${esc(group.route)}">Open module</button></div>
+          <div class="list">${group.records.map((record) => `<div class="list-row">${group.row(record)}</div>`).join("")}</div>
+        </section>
+      `).join("")}</div>` : '<div class="empty"><strong>No authorized results</strong><p>Nothing visible to your current account matched this search.</p></div>'}
+    </div>
+  `;
+
+  target.querySelectorAll("[data-search-route]").forEach((button) => button.addEventListener("click", () => navigate(button.dataset.searchRoute)));
 }
 
 async function renderHome(target) {
