@@ -175,6 +175,10 @@ service cloud.firestore {
         && data.minimumClearance == classificationLevel(data.classification);
     }
 
+    function doesNotChange(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
     function canReadCustomerRelated(customerRecordId) {
       return hasPermission("customer.view")
         && exists(/databases/$(database)/documents/customers/$(customerRecordId))
@@ -278,7 +282,10 @@ service cloud.firestore {
           && safeNonOwnerProfile(request.resource.data)
           && (
             isSystemOwner()
-            || safeDelegatedProfile(request.resource.data)
+            || (
+              safeDelegatedProfile(resource.data)
+              && safeDelegatedProfile(request.resource.data)
+            )
           )
         );
 
@@ -551,13 +558,19 @@ service cloud.firestore {
 
     match /performanceReviews/{recordId} {
       allow read: if hasPermission("hr.view");
-      allow create, update: if hasPermission("hr.manage");
+      allow create: if hasPermission("hr.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("hr.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
     match /disciplinaryActions/{recordId} {
       allow read: if hasPermission("hr.view");
-      allow create, update: if hasPermission("hr.manage");
+      allow create: if hasPermission("hr.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("hr.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
@@ -568,7 +581,10 @@ service cloud.firestore {
           && resource.data.employeeId == profile().employeeId
         );
 
-      allow create, update: if hasPermission("training.manage");
+      allow create: if hasPermission("training.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("training.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
@@ -591,7 +607,10 @@ service cloud.firestore {
 
     match /assets/{recordId} {
       allow read: if hasPermission("asset.view");
-      allow create, update: if hasPermission("asset.manage");
+      allow create: if hasPermission("asset.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("asset.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
@@ -616,7 +635,10 @@ service cloud.firestore {
       allow read: if hasPermission("vendor.view")
         || hasPermission("procurement.view");
 
-      allow create, update: if hasPermission("vendor.manage");
+      allow create: if hasPermission("vendor.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("vendor.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
@@ -628,6 +650,7 @@ service cloud.firestore {
         );
 
       allow create: if hasPermission("contract.manage")
+        && request.resource.data.createdBy == uid()
         && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
@@ -637,7 +660,8 @@ service cloud.firestore {
           || classifiedRecordAllowed(resource.data)
         )
         && validClassification(request.resource.data)
-        && classificationAllowed(request.resource.data.classification);
+        && classificationAllowed(request.resource.data.classification)
+        && doesNotChange(["createdAt", "createdBy"]);
 
       allow delete: if false;
     }
@@ -661,13 +685,19 @@ service cloud.firestore {
 
     match /invoices/{recordId} {
       allow read: if hasPermission("finance.view");
-      allow create, update: if hasPermission("finance.manage");
+      allow create: if hasPermission("finance.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("finance.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
     match /projects/{recordId} {
       allow read: if hasPermission("project.view");
-      allow create, update: if hasPermission("project.manage");
+      allow create: if hasPermission("project.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("project.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
@@ -679,6 +709,7 @@ service cloud.firestore {
         );
 
       allow create: if hasPermission("document.manage")
+        && request.resource.data.createdBy == uid()
         && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
@@ -688,20 +719,27 @@ service cloud.firestore {
           || classifiedRecordAllowed(resource.data)
         )
         && validClassification(request.resource.data)
-        && classificationAllowed(request.resource.data.classification);
+        && classificationAllowed(request.resource.data.classification)
+        && doesNotChange(["createdAt", "createdBy"]);
 
       allow delete: if false;
     }
 
     match /announcements/{recordId} {
       allow read: if hasPermission("communications.view");
-      allow create, update: if hasPermission("communications.manage");
+      allow create: if hasPermission("communications.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("communications.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
     match /policies/{recordId} {
       allow read: if hasPermission("compliance.view");
-      allow create, update: if hasPermission("compliance.manage");
+      allow create: if hasPermission("compliance.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("compliance.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
@@ -717,13 +755,19 @@ service cloud.firestore {
 
     match /complianceFindings/{recordId} {
       allow read: if hasPermission("compliance.view");
-      allow create, update: if hasPermission("compliance.manage");
+      allow create: if hasPermission("compliance.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("compliance.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
     match /risks/{recordId} {
       allow read: if hasPermission("risk.view");
-      allow create, update: if hasPermission("risk.manage");
+      allow create: if hasPermission("risk.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("risk.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
@@ -735,6 +779,7 @@ service cloud.firestore {
         );
 
       allow create: if hasPermission("investigation.manage")
+        && request.resource.data.createdBy == uid()
         && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
@@ -744,7 +789,8 @@ service cloud.firestore {
           || classifiedRecordAllowed(resource.data)
         )
         && validClassification(request.resource.data)
-        && classificationAllowed(request.resource.data.classification);
+        && classificationAllowed(request.resource.data.classification)
+        && doesNotChange(["createdAt", "createdBy"]);
 
       allow delete: if false;
     }
@@ -754,7 +800,10 @@ service cloud.firestore {
         || hasPermission("workflow.manage")
         || hasPermission("workflow.run");
 
-      allow create, update: if hasPermission("workflow.manage");
+      allow create: if hasPermission("workflow.manage")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("workflow.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
@@ -832,7 +881,10 @@ service cloud.firestore {
 
     match /securityAlerts/{recordId} {
       allow read: if hasPermission("security.alerts.view");
-      allow create, update: if hasPermission("security.alerts.manage");
+      allow create: if hasPermission("security.alerts.manage")
+        && request.resource.data.createdByUid == uid();
+      allow update: if hasPermission("security.alerts.manage")
+        && doesNotChange(["createdAt", "createdByUid", "createdByEmployeeId"]);
       allow delete: if false;
     }
 
