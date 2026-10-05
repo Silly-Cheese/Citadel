@@ -190,6 +190,15 @@ function accountName() {
   return state.employee?.displayName || state.userRecord?.displayName || state.user?.displayName || state.user?.email || "Citadel User";
 }
 
+function currentBuild() {
+  return document.querySelector('meta[data-citadel-build]')?.getAttribute("content") || "development";
+}
+
+function shortBuild() {
+  const value=currentBuild();
+  return value === "development" ? "Development" : value.slice(0,12);
+}
+
 function firebaseMessage(error) {
   const code = error?.code || "";
   const map = {
@@ -1805,6 +1814,7 @@ async function renderAdmin(target) {
               <div class="security-box"><span>Product</span><strong>Citadel</strong></div>
               <div class="security-box"><span>Firebase project</span><strong>citadel-8bf1b</strong></div>
               <div class="security-box"><span>Hosting model</span><strong>GitHub Pages</strong></div>
+              <div class="security-box"><span>Deployed build</span><strong title="${esc(currentBuild())}">${esc(shortBuild())}</strong></div>
             </div>
           </div>
         </section>
