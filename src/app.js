@@ -87,6 +87,18 @@ function hasPermission(permission) {
   return Array.isArray(state.profile.permissions) && state.profile.permissions.includes(permission);
 }
 
+function classificationLevel(value = "STANDARD") {
+  const levels = {
+    STANDARD: 0,
+    INTERNAL: 1,
+    CONFIDENTIAL: 2,
+    SENSITIVE: 4,
+    RESTRICTED: 6,
+    HIGHLY_RESTRICTED: 8
+  };
+  return levels[String(value).toUpperCase()] ?? 0;
+}
+
 function accountName() {
   return state.employee?.displayName || state.userRecord?.displayName || state.user?.displayName || state.user?.email || "Citadel User";
 }
@@ -577,12 +589,29 @@ async function renderHome(target) {
 }
 
 async function customerQuery() {
-  const term = state.search.trim();
-  if (!term) return getDocs(query(collection(db, "customers"), orderBy("createdAt", "desc"), limit(50)));
-  if (/^CUS-/i.test(term)) return getDocs(query(collection(db, "customers"), where("customerId", "==", term.toUpperCase()), limit(20)));
-  if (term.includes("@")) return getDocs(query(collection(db, "customers"), where("email", "==", term.toLowerCase()), limit(20)));
-  const normalized = term.toLowerCase();
-  return getDocs(query(collection(db, "customers"), orderBy("searchName"), where("searchName", ">=", normalized), where("searchName", "<=", normalized + "\uf8ff"), limit(50)));
+  const term = state.search.trim().toLowerCase();
+  const clearance = Number(state.profile?.clearanceLevel || 0);
+
+  // No composite indexes: fetch only records authorized by the single
+  // minimumClearance field, then apply text/ID filtering in memory.
+  const snap = state.profile?.isSystemOwner === true
+    ? await getDocs(query(collection(db, "customers"), orderBy("createdAt", "desc"), limit(200)))
+    : await getDocs(query(collection(db, "customers"), where("minimumClearance", "<=", clearance), limit(200)));
+
+  if (!term) return snap;
+
+  const docs = snap.docs.filter((d) => {
+    const data = d.data();
+    return [
+      data.customerId,
+      data.displayName,
+      data.searchName,
+      data.email,
+      data.phone
+    ].some((value) => String(value || "").toLowerCase().includes(term));
+  });
+
+  return { docs };
 }
 
 async function renderCustomers(target) {
@@ -656,6 +685,7 @@ function newCustomerModal() {
           phone: String(fd.get("phone") || "").trim(),
           status: String(fd.get("status") || "Active"),
           classification: String(fd.get("classification") || "STANDARD"),
+          minimumClearance: classificationLevel(String(fd.get("classification") || "STANDARD")),
           assignedEmployeeId: state.employee?.employeeId || null,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
@@ -785,6 +815,7 @@ async function openCustomer(customer) {
           phone: String(fd.get("phone") || "").trim(),
           status: String(fd.get("status") || "Active"),
           classification: String(fd.get("classification") || "STANDARD"),
+          minimumClearance: classificationLevel(String(fd.get("classification") || "STANDARD")),
           updatedAt: serverTimestamp(),
           updatedBy: state.user.uid
         });
