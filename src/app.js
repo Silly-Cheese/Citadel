@@ -1520,7 +1520,7 @@ async function renderCases(target) {
               <td><div class="primary-cell">${esc(c.title || "Untitled case")}</div><div class="secondary">${esc(c.caseId || "—")}</div></td>
               <td>${statusBadge(c.priority || "Normal")}</td>
               <td>${statusBadge(c.status || "Open")}</td>
-              <td>${(() => { const customer=customerFromHumanId(refs.customers,c.customerId); return customer ? `<div class="primary-cell">${esc(customerDisplayName(customer))}</div><div class="secondary">${esc(c.customerId || "")}</div>` : esc(c.customerId || "Internal"); })()}</td>
+              <td>${(() => { const customer=customerFromHumanId(refs.customers,c.customerId); return customer ? `<div class="primary-cell">${esc(customerDisplayName(customer))}</div><div class="secondary">${esc(c.customerId || "")}</div>` : c.customerId ? `<span class="badge warning">Restricted customer</span>` : "Internal"; })()}</td>
               <td><div class="primary-cell">${esc(employeeDisplay(refs.employees,c.assignedEmployeeId))}</div><div class="secondary">${esc(employeeDisplayContext(refs.employees,c.assignedEmployeeId))}</div></td>
               <td>${c.slaDueAt ? statusBadge(!closed && slaBreached ? "Breached" : closed ? "Complete" : "On Track") : '<span class="badge">Not set</span>'}</td>
               <td>${esc(fmtDate(c.createdAt))}</td>
