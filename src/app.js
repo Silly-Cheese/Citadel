@@ -959,29 +959,137 @@ async function renderApprovals(target) {
 
 async function renderSecurity(target) {
   if (!hasPermission("security.manage")) throw Object.assign(new Error("Security administration permission required."), { code: "permission-denied" });
-  const audits = await safeCollection("auditEvents", 30);
+  const [audits, accessProfiles] = await Promise.all([
+    safeCollection("auditEvents", 40),
+    hasPermission("access.manage") ? safeCollection("accessProfiles", 100) : Promise.resolve([])
+  ]);
+
   target.innerHTML = `
     <div class="page">
-      ${pageHeader("Security", "Identity, effective access, classification, and audit controls.")}
+      ${pageHeader("Security", "Identity, effective access, classification, clearance, and audit controls.")}
       <div class="security-grid" style="margin-bottom:14px">
         <div class="security-box"><span>Account class</span><strong>${esc(state.userRecord?.protectedPrincipal ? "Protected Principal" : "Standard")}</strong></div>
         <div class="security-box"><span>Clearance</span><strong>C${Number(state.profile?.clearanceLevel || 0)}</strong></div>
         <div class="security-box"><span>Scope</span><strong>${esc(state.profile?.scope || "Assigned")}</strong></div>
       </div>
+
+      ${hasPermission("access.manage") ? `
+        <section class="card" style="margin-bottom:14px">
+          <div class="card-head"><div><h2>Access profiles</h2><p>Clearance, roles, explicit permissions, and account authorization</p></div></div>
+          ${accessProfiles.length ? `
+            <div class="table-wrap"><table class="table">
+              <thead><tr><th>Employee</th><th>Clearance</th><th>Roles</th><th>Status</th><th>Protected</th></tr></thead>
+              <tbody>${accessProfiles.map((p) => `
+                <tr data-access-profile="${esc(p.id)}" style="cursor:pointer">
+                  <td><div class="primary-cell">${esc(p.employeeId || p.id)}</div><div class="secondary">${esc(p.id)}</div></td>
+                  <td><span class="badge">C${Number(p.clearanceLevel || 0)}</span></td>
+                  <td>${esc((p.roles || []).join(", ") || "No role")}</td>
+                  <td>${statusBadge(p.active === false ? "Suspended" : "Active")}</td>
+                  <td>${p.protectedPrincipal ? '<span class="badge warning">Protected Principal</span>' : '<span class="badge">Standard</span>'}</td>
+                </tr>
+              `).join("")}</tbody>
+            </table></div>
+          ` : '<div class="empty"><strong>No access profiles found</strong><p>Provisioned Citadel accounts will appear here.</p></div>'}
+        </section>
+      ` : ""}
+
       <div class="grid-2">
         <section class="card">
-          <div class="card-head"><div><h2>Effective access</h2><p>Permissions currently granted to this account</p></div></div>
+          <div class="card-head"><div><h2>My effective access</h2><p>Permissions currently granted to this account</p></div></div>
           <div class="list">
             ${(state.profile?.permissions || []).map((p) => `<div class="list-row"><div class="grow"><strong>${esc(p)}</strong><span>Granted by ${esc(state.profile?.roles?.join(", ") || "access profile")}</span></div><span class="badge success">Allowed</span></div>`).join("")}
           </div>
         </section>
         <section class="card">
           <div class="card-head"><div><h2>Recent audit events</h2><p>System-wide events visible to your authorization</p></div></div>
-          ${audits.length ? `<div class="list">${audits.slice(0,12).map((a) => `<div class="list-row"><div class="grow"><strong>${esc(a.action || "EVENT")}</strong><span>${esc(a.actorEmployeeId || a.actorUid || "System")} · ${esc(fmtDateTime(a.createdAt))}</span></div></div>`).join("")}</div>` : '<div class="empty"><strong>No audit events</strong><p>Security-relevant activity will appear here.</p></div>'}
+          ${audits.length ? `<div class="list">${audits.slice(0,16).map((a) => `<div class="list-row"><div class="grow"><strong>${esc(a.action || "EVENT")}</strong><span>${esc(a.actorEmployeeId || a.actorUid || "System")} · ${esc(fmtDateTime(a.createdAt))}</span></div></div>`).join("")}</div>` : '<div class="empty"><strong>No audit events</strong><p>Security-relevant activity will appear here.</p></div>'}
         </section>
       </div>
     </div>
   `;
+
+  target.querySelectorAll("[data-access-profile]").forEach((row) => row.addEventListener("click", () => {
+    const profile = accessProfiles.find((p) => p.id === row.dataset.accessProfile);
+    if (profile) manageAccessProfile(profile);
+  }));
+}
+
+function manageAccessProfile(profile) {
+  const isProtectedOther = profile.protectedPrincipal === true && profile.id !== state.user.uid;
+  const permissionsText = (profile.permissions || []).join("\n");
+  const rolesText = (profile.roles || []).join(", ");
+
+  openModal({
+    title: `Access profile · ${profile.employeeId || profile.id}`,
+    submitLabel: isProtectedOther ? "Close" : "Save access",
+    width: "760px",
+    body: `
+      ${profile.protectedPrincipal ? '<div class="notice warning" style="margin-bottom:16px"><div><strong>Protected Principal</strong>Citadel prevents ordinary administrators from disabling or stripping ownership authority from protected principals.</div></div>' : ""}
+      <div class="form-grid">
+        <div class="field"><label>Clearance level</label><select class="select" name="clearanceLevel">${Array.from({length:11},(_,i)=>`<option value="${i}" ${Number(profile.clearanceLevel||0)===i?"selected":""}>C${i}</option>`).join("")}</select></div>
+        <div class="field"><label>Account authorization</label><select class="select" name="active"><option value="true" ${profile.active!==false?"selected":""}>Active</option><option value="false" ${profile.active===false?"selected":""}>Suspended</option></select></div>
+        <div class="field span-2"><label>Roles</label><input class="input" name="roles" value="${esc(rolesText)}" placeholder="CUSTOMER_REP, MANAGER" /><div class="field-help">Comma-separated role identifiers.</div></div>
+        <div class="field span-2"><label>Explicit permissions</label><textarea class="textarea" name="permissions" style="min-height:240px">${esc(permissionsText)}</textarea><div class="field-help">One permission per line. Clearance alone never grants a permission.</div></div>
+      </div>
+    `,
+    onSubmit: async (fd) => {
+      if (isProtectedOther) return true;
+      try {
+        const clearanceLevel = Number(fd.get("clearanceLevel") || 0);
+        const active = String(fd.get("active")) === "true";
+        const roles = String(fd.get("roles") || "").split(",").map(v => v.trim()).filter(Boolean);
+        const permissions = [...new Set(String(fd.get("permissions") || "").split(/\r?\n/).map(v => v.trim()).filter(Boolean))];
+
+        if (profile.protectedPrincipal && profile.id === state.user.uid) {
+          if (!active || clearanceLevel !== 10 || profile.isSystemOwner !== true) {
+            toast("Protected owner", "The primary protected owner must remain active at C10.");
+            return false;
+          }
+        }
+
+        await updateDoc(doc(db, "accessProfiles", profile.id), {
+          clearanceLevel,
+          active,
+          roles,
+          permissions,
+          updatedAt: serverTimestamp()
+        });
+
+        if (hasPermission("employee.manage")) {
+          try {
+            await updateDoc(doc(db, "employees", profile.id), {
+              clearanceLevel,
+              updatedAt: serverTimestamp(),
+              updatedBy: state.user.uid
+            });
+          } catch (error) {
+            console.warn("Employee clearance mirror was not updated", error);
+          }
+        }
+
+        await audit("ACCESS_PROFILE_UPDATED", "accessProfile", profile.id, {
+          targetEmployeeId: profile.employeeId || null,
+          targetClearanceLevel: clearanceLevel
+        });
+        toast("Access updated", profile.employeeId || profile.id);
+
+        if (profile.id === state.user.uid) {
+          await loadAccount(state.user);
+        } else {
+          await renderPage();
+        }
+        return true;
+      } catch (error) {
+        toast("Access update failed", firebaseMessage(error));
+        return false;
+      }
+    }
+  });
+
+  if (isProtectedOther) {
+    const form = document.querySelector("#modal-root form");
+    form?.querySelectorAll("input,select,textarea").forEach((el) => el.disabled = true);
+  }
 }
 
 async function renderAdmin(target) {
