@@ -840,7 +840,14 @@ async function renderGlobalSearch(target) {
 
 async function renderHome(target) {
   const [customers, cases, approvals, requests, serviceTickets, notifications] = await Promise.all([
-    hasPermission("customer.view") ? safeCollection("customers", 100) : [],
+    hasPermission("customer.view") ? (async () => {
+      try {
+        const snap = state.profile?.isSystemOwner === true
+          ? await getDocs(query(collection(db,"customers"),orderBy("createdAt","desc"),limit(100)))
+          : await getDocs(query(collection(db,"customers"),where("minimumClearance","<=",effectiveClearance()),limit(100)));
+        return snap.docs.map(d=>({id:d.id,...d.data()}));
+      } catch { return []; }
+    })() : [],
     hasPermission("case.view") ? safeCollection("cases", 100) : [],
     hasPermission("approval.view") ? safeCollection("approvals", 100) : [],
     hasPermission("system.manage") ? safeCollection("registrationRequests", 100, "requestedAt") : [],
@@ -858,6 +865,15 @@ async function renderHome(target) {
   const pendingAccounts = requests.filter((r) => r.status === "pending");
   const openService = serviceTickets.filter(t => !["resolved","closed","cancelled"].includes(String(t.status).toLowerCase()));
   const unreadNotifications = notifications.filter(n => n.read !== true);
+
+  const homeMetrics = [
+    hasPermission("customer.view") && { route:"customers", label:"Customers", value:customers.length, meta:"Authorized records" },
+    hasPermission("case.view") && { route:"cases", label:"Open cases", value:openCases.length, meta:"Requires attention" },
+    hasPermission("approval.view") && { route:"approvals", label:"Pending approvals", value:pendingApprovals.length, meta:"Awaiting decisions" },
+    hasPermission("notification.view") && { route:"notifications", label:"Unread", value:unreadNotifications.length, meta:"Notifications" },
+    hasPermission("service.view") && { route:"service", label:"Service queue", value:openService.length, meta:"Open internal requests" },
+    hasPermission("system.manage") && { route:"admin", label:"Account requests", value:pendingAccounts.length, meta:"Awaiting provisioning" }
+  ].filter(Boolean).slice(0,4);
 
   const quickActions = [
     hasPermission("customer.create") && { route:"customers", icon:"+", title:"New customer", detail:"Create a Customer 360 record" },
@@ -894,10 +910,7 @@ async function renderHome(target) {
       </section>
 
       <div class="kpi-grid home-kpis">
-        <button class="kpi-card kpi-button" data-route-local="customers"><div class="kpi-label">Customers</div><div class="kpi-value">${customers.length}</div><div class="kpi-meta">Authorized records</div></button>
-        <button class="kpi-card kpi-button" data-route-local="cases"><div class="kpi-label">Open cases</div><div class="kpi-value">${openCases.length}</div><div class="kpi-meta">Requires attention</div></button>
-        <button class="kpi-card kpi-button" data-route-local="approvals"><div class="kpi-label">Pending approvals</div><div class="kpi-value">${pendingApprovals.length}</div><div class="kpi-meta">Awaiting decisions</div></button>
-        <button class="kpi-card kpi-button" data-route-local="notifications"><div class="kpi-label">Unread</div><div class="kpi-value">${unreadNotifications.length}</div><div class="kpi-meta">Notifications</div></button>
+        ${homeMetrics.map(metric => `<button class="kpi-card kpi-button" data-route-local="${esc(metric.route)}"><div class="kpi-label">${esc(metric.label)}</div><div class="kpi-value">${metric.value}</div><div class="kpi-meta">${esc(metric.meta)}</div></button>`).join("")}
       </div>
 
       <section class="workspace-section">
