@@ -37,6 +37,10 @@ export const GENERATION2_PERMISSIONS = [
   "finance.manage",
   "compliance.view",
   "compliance.manage",
+  "risk.view",
+  "risk.manage",
+  "investigation.view",
+  "investigation.manage",
   "project.view",
   "project.manage",
   "document.view",
@@ -65,6 +69,8 @@ export const GENERATION2_NAV = [
   { section: "Enterprise", id: "communications", label: "Communications", icon: "◒", permission: "communications.view" },
 
   { section: "Governance", id: "compliance", label: "Compliance", icon: "✓", permission: "compliance.view" },
+  { section: "Governance", id: "risks", label: "Risk Register", icon: "!", permission: "risk.view" },
+  { section: "Governance", id: "investigations", label: "Investigations", icon: "◐", permission: "investigation.view" },
   { section: "Governance", id: "workflows", label: "Workflows", icon: "⇄", permission: "workflow.view" }
 ];
 
@@ -241,6 +247,65 @@ const MODULES = {
       { name: "priority", label: "Priority", type: "select", options: ["Normal","Important","Urgent","Critical"] },
       { name: "status", label: "Status", type: "select", options: ["Draft","Published","Expired"] },
       { name: "body", label: "Message", type: "textarea", span: 2, required: true }
+    ]
+  },
+  risks: {
+    title: "Risks",
+    subtitle: "Enterprise risk register, ownership, exposure, mitigation, and review status.",
+    collection: "risks",
+    prefix: "RSK",
+    counter: "risks",
+    view: "risk.view",
+    manage: "risk.manage",
+    createLabel: "New risk",
+    singular: "risk",
+    columns: [
+      ["Risk", r => cell(r.title || "Risk", r.riskId)],
+      ["Category", r => esc(r.category || "Enterprise")],
+      ["Likelihood", r => statusBadge(r.likelihood || "Possible")],
+      ["Impact", r => statusBadge(r.impact || "Moderate")],
+      ["Status", r => statusBadge(r.status || "Open")],
+      ["Owner", r => esc(r.ownerEmployeeId || "Unassigned")]
+    ],
+    fields: [
+      { name: "title", label: "Risk title", required: true, span: 2 },
+      { name: "category", label: "Category", type: "select", options: ["Strategic","Operational","Financial","Compliance","Security","Technology","Vendor","Reputation","Other"] },
+      { name: "status", label: "Status", type: "select", options: ["Open","Monitoring","Mitigating","Accepted","Transferred","Closed"] },
+      { name: "likelihood", label: "Likelihood", type: "select", options: ["Rare","Unlikely","Possible","Likely","Almost Certain"] },
+      { name: "impact", label: "Impact", type: "select", options: ["Low","Moderate","High","Severe","Critical"] },
+      { name: "ownerEmployeeId", label: "Risk owner employee ID" },
+      { name: "reviewDate", label: "Next review date", type: "date" },
+      { name: "description", label: "Risk description", type: "textarea", span: 2 },
+      { name: "mitigation", label: "Mitigation / controls", type: "textarea", span: 2 }
+    ]
+  },
+  investigations: {
+    title: "Investigations",
+    subtitle: "Restricted internal investigations, case ownership, evidence context, and controlled outcomes.",
+    collection: "investigations",
+    prefix: "IGT",
+    counter: "investigations",
+    view: "investigation.view",
+    manage: "investigation.manage",
+    createLabel: "Open investigation",
+    singular: "investigation",
+    columns: [
+      ["Investigation", r => cell(r.title || "Investigation", r.investigationId)],
+      ["Type", r => esc(r.investigationType || "Internal")],
+      ["Status", r => statusBadge(r.status || "Open")],
+      ["Classification", r => classificationBadge(r.classification || "RESTRICTED")],
+      ["Lead", r => esc(r.leadEmployeeId || "Unassigned")],
+      ["Opened", r => esc(fmtDate(r.createdAt))]
+    ],
+    fields: [
+      { name: "title", label: "Investigation title", required: true, span: 2 },
+      { name: "investigationType", label: "Type", type: "select", options: ["Employee Conduct","Customer Fraud","Security Incident","Financial Irregularity","Compliance","Policy Violation","Other"] },
+      { name: "status", label: "Status", type: "select", options: ["Open","Triage","Active Investigation","Pending Review","Substantiated","Unsubstantiated","Closed"] },
+      { name: "classification", label: "Classification", type: "select", options: ["SENSITIVE","RESTRICTED","HIGHLY_RESTRICTED"] },
+      { name: "leadEmployeeId", label: "Lead investigator employee ID" },
+      { name: "subjectReference", label: "Subject / related ID", span: 2 },
+      { name: "allegationSummary", label: "Allegation / issue summary", type: "textarea", span: 2 },
+      { name: "outcome", label: "Outcome / disposition", type: "textarea", span: 2 }
     ]
   },
   workflows: {
@@ -1204,6 +1269,8 @@ export function createGeneration2(ctx) {
     documents: target => renderRegistry(target,"documents"),
     communications: target => renderRegistry(target,"communications"),
     compliance: renderCompliance,
+    risks: target => renderRegistry(target,"risks"),
+    investigations: target => renderRegistry(target,"investigations"),
     workflows: target => renderRegistry(target,"workflows")
   };
 
