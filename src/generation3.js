@@ -12,7 +12,7 @@ import {
   limit,
   serverTimestamp,
   writeBatch
-} from "./firebase.js?v=20261005-r2";
+} from "./firebase.js?v=20261005-r3";
 import {
   esc,
   fmtDate,
@@ -20,7 +20,7 @@ import {
   statusBadge,
   classificationBadge,
   customerDisplayName
-} from "./utils.js?v=20261005-r2";
+} from "./utils.js?v=20261005-r3";
 
 export const GENERATION3_PERMISSIONS = [
   "analytics.view",
