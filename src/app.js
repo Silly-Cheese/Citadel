@@ -304,28 +304,31 @@ function permissionPicker(selectedPermissions = []) {
     const perms = ALL_PERMISSION_OPTIONS.filter(p => p.startsWith(prefix));
     if (!perms.length) return "";
     const selectedCount = perms.filter(p => selected.has(p)).length;
-    return `<details class="permission-group" data-permission-group ${index < 3 || selectedCount ? "open" : ""}>
-      <summary class="permission-group-head">
-        <div class="permission-group-title">
+    const expanded = index < 2 || selectedCount > 0;
+    return `<section class="permission-group ${expanded ? "is-open" : ""}" data-permission-group>
+      <button class="permission-group-head" type="button" data-toggle-permission-group aria-expanded="${expanded ? "true" : "false"}">
+        <span class="permission-group-title">
           <span class="permission-group-icon">${esc(label.charAt(0))}</span>
-          <span><strong>${esc(label)}</strong><small><span data-group-selected>${selectedCount}</span> of ${perms.length} selected</small></span>
-        </div>
+          <span class="permission-group-text"><strong>${esc(label)}</strong><small><span data-group-selected>${selectedCount}</span> of ${perms.length} selected</small></span>
+        </span>
         <span class="permission-chevron">⌄</span>
-      </summary>
-      <div class="permission-group-actions">
-        <button class="text-action" type="button" data-select-group>Select all</button>
-        <button class="text-action" type="button" data-clear-group>Clear</button>
+      </button>
+      <div class="permission-group-body" ${expanded ? "" : "hidden"}>
+        <div class="permission-group-actions">
+          <button class="text-action" type="button" data-select-group>Select all</button>
+          <button class="text-action" type="button" data-clear-group>Clear</button>
+        </div>
+        <div class="permission-list">${perms.map(p => `
+          <label class="permission-row" data-permission-option="${esc((permissionFriendlyName(p) + " " + p).toLowerCase())}">
+            <span class="permission-check"><input type="checkbox" name="permissions" value="${esc(p)}" ${selected.has(p) ? "checked" : ""}/><i></i></span>
+            <span class="permission-copy">
+              <strong>${esc(permissionFriendlyName(p))}</strong>
+              <small>${esc(p)}</small>
+            </span>
+          </label>
+        `).join("")}</div>
       </div>
-      <div class="permission-list">${perms.map(p => `
-        <label class="permission-row" data-permission-option="${esc((permissionFriendlyName(p) + " " + p).toLowerCase())}">
-          <span class="permission-check"><input type="checkbox" name="permissions" value="${esc(p)}" ${selected.has(p) ? "checked" : ""}/><i></i></span>
-          <span class="permission-copy">
-            <strong>${esc(permissionFriendlyName(p))}</strong>
-            <small>${esc(p)}</small>
-          </span>
-        </label>
-      `).join("")}</div>
-    </details>`;
+    </section>`;
   }).join("");
 }
 
@@ -1504,28 +1507,52 @@ function manageAccessProfile(profile) {
   openModal({
     title: `Access profile · ${profile.employeeId || profile.id}`,
     submitLabel: isProtectedOther ? "Close" : "Save access",
-    width: "760px",
+    width: "980px",
     body: `
-      ${profile.protectedPrincipal ? '<div class="notice warning" style="margin-bottom:16px"><div><strong>Protected Principal</strong>Citadel prevents ordinary administrators from disabling or stripping ownership authority from protected principals.</div></div>' : ""}
-      <div class="form-grid">
-        <div class="field"><label>Clearance level</label><select class="select" name="clearanceLevel">${Array.from({length:11},(_,i)=>`<option value="${i}" ${Number(profile.clearanceLevel||0)===i?"selected":""}>C${i}</option>`).join("")}</select></div>
-        <div class="field"><label>Account authorization</label><select class="select" name="active"><option value="true" ${profile.active!==false?"selected":""}>Active</option><option value="false" ${profile.active===false?"selected":""}>Suspended</option></select></div>
-        <div class="field span-2">
-          <div class="field-heading"><div><label>Roles</label><span>Broad job-function labels for this account.</span></div></div>
-          ${rolePicker(profile.roles || [])}
+      ${profile.protectedPrincipal ? '<div class="notice warning" style="margin-bottom:16px"><div><strong>Protected Principal</strong>Citadel protects this account from ordinary administrative lockout or ownership removal.</div></div>' : ""}
+      <div class="access-editor">
+        <div class="access-editor-summary">
+          <div class="access-editor-avatar">${esc((profile.employeeId || "U").slice(-2))}</div>
+          <div class="grow"><strong>${esc(profile.employeeId || "Citadel user")}</strong><span>${esc((profile.roles || []).map(roleLabel).join(", ") || "No role assigned")} · C${Number(profile.clearanceLevel || 0)}</span></div>
+          ${profile.protectedPrincipal ? '<span class="badge warning">Protected</span>' : statusBadge(profile.active === false ? "Suspended" : "Active")}
         </div>
-        <div class="field span-2 permission-field">
+
+        <div class="editor-tabs" role="tablist">
+          <button class="editor-tab active" type="button" data-editor-tab="account">Account</button>
+          <button class="editor-tab" type="button" data-editor-tab="roles">Roles</button>
+          <button class="editor-tab" type="button" data-editor-tab="permissions">Permissions <span class="tab-count" data-permission-tab-count>0</span></button>
+        </div>
+
+        <section class="editor-pane active" data-editor-pane="account">
+          <div class="editor-pane-head"><div><h3>Account controls</h3><p>Authorization state and clearance for this Citadel identity.</p></div></div>
+          <div class="form-grid">
+            <div class="field"><label>Clearance level</label><select class="select" name="clearanceLevel">${Array.from({length:11},(_,i)=>`<option value="${i}" ${Number(profile.clearanceLevel||0)===i?"selected":""}>C${i}</option>`).join("")}</select><div class="field-help">Clearance controls classified-record eligibility; it does not automatically grant module permissions.</div></div>
+            <div class="field"><label>Account authorization</label><select class="select" name="active"><option value="true" ${profile.active!==false?"selected":""}>Active</option><option value="false" ${profile.active===false?"selected":""}>Suspended</option></select><div class="field-help">Suspended accounts cannot use Citadel even if permissions remain assigned.</div></div>
+          </div>
+          <div class="access-explainer">
+            <div><span>Permanent clearance</span><strong>C${Number(profile.clearanceLevel || 0)}</strong></div>
+            <div><span>Roles assigned</span><strong>${(profile.roles || []).length}</strong></div>
+            <div><span>Explicit permissions</span><strong>${(profile.permissions || []).length}</strong></div>
+          </div>
+        </section>
+
+        <section class="editor-pane" data-editor-pane="roles" hidden>
+          <div class="editor-pane-head"><div><h3>Roles</h3><p>Use roles to describe the employee's job function. Permissions are still controlled separately.</p></div></div>
+          ${rolePicker(profile.roles || [])}
+        </section>
+
+        <section class="editor-pane permission-field" data-editor-pane="permissions" hidden>
           <div class="field-heading">
-            <div><label>Explicit permissions</label><span>Choose exactly what this account can do. Clearance and permissions are evaluated separately.</span></div>
+            <div><h3>Explicit permissions</h3><span>Select the exact capabilities this account receives.</span></div>
             <div class="selection-count"><strong data-permission-count>0</strong><span>selected</span></div>
           </div>
           <div class="permission-toolbar">
-            <div class="permission-search-wrap"><span>⌕</span><input class="input" type="search" data-permission-search placeholder="Search by action or permission name…" /></div>
+            <div class="permission-search-wrap"><span>⌕</span><input class="input" type="search" data-permission-search placeholder="Search permissions…" /></div>
             <button class="btn btn-sm" type="button" data-expand-permissions>Expand all</button>
             <button class="btn btn-sm btn-ghost" type="button" data-collapse-permissions>Collapse all</button>
           </div>
           <div class="permission-picker" data-permission-picker>${permissionPicker(profile.permissions || [])}</div>
-        </div>
+        </section>
       </div>
     `,
     onSubmit: async (fd) => {
@@ -1589,6 +1616,8 @@ function manageAccessProfile(profile) {
   const refreshPermissionCounts = () => {
     const allChecked = modalRoot.querySelectorAll('input[name="permissions"]:checked');
     if (permissionCount) permissionCount.textContent = allChecked.length;
+    const tabCount = modalRoot.querySelector("[data-permission-tab-count]");
+    if (tabCount) tabCount.textContent = allChecked.length;
     modalRoot.querySelectorAll("[data-permission-group]").forEach(group => {
       const checked = group.querySelectorAll('input[name="permissions"]:checked').length;
       const selectedLabel = group.querySelector("[data-group-selected]");
@@ -1606,15 +1635,31 @@ function manageAccessProfile(profile) {
     modalRoot.querySelectorAll("[data-permission-group]").forEach((group) => {
       const visible = [...group.querySelectorAll("[data-permission-option]")].some(el => !el.hidden);
       group.hidden = !visible;
-      if (term && visible) group.open = true;
+      if (term && visible) {
+        group.classList.add("is-open");
+        group.querySelector("[data-toggle-permission-group]")?.setAttribute("aria-expanded","true");
+        const body = group.querySelector(".permission-group-body");
+        if (body) body.hidden = false;
+      }
     });
   });
 
+  const setPermissionGroupOpen = (group, open) => {
+    group.classList.toggle("is-open", open);
+    group.querySelector("[data-toggle-permission-group]")?.setAttribute("aria-expanded", String(open));
+    const body = group.querySelector(".permission-group-body");
+    if (body) body.hidden = !open;
+  };
+
+  modalRoot.querySelectorAll("[data-toggle-permission-group]").forEach(button => button.addEventListener("click", () => {
+    const group = button.closest("[data-permission-group]");
+    setPermissionGroupOpen(group, !group.classList.contains("is-open"));
+  }));
   modalRoot.querySelector("[data-expand-permissions]")?.addEventListener("click", () => {
-    modalRoot.querySelectorAll("[data-permission-group]").forEach(group => group.open = true);
+    modalRoot.querySelectorAll("[data-permission-group]").forEach(group => setPermissionGroupOpen(group, true));
   });
   modalRoot.querySelector("[data-collapse-permissions]")?.addEventListener("click", () => {
-    modalRoot.querySelectorAll("[data-permission-group]").forEach(group => group.open = false);
+    modalRoot.querySelectorAll("[data-permission-group]").forEach(group => setPermissionGroupOpen(group, false));
   });
   modalRoot.querySelectorAll("[data-select-group]").forEach(button => button.addEventListener("click", () => {
     button.closest("[data-permission-group]").querySelectorAll('input[name="permissions"]').forEach(input => input.checked = true);
@@ -1626,6 +1671,16 @@ function manageAccessProfile(profile) {
   }));
   modalRoot.querySelectorAll('input[name="permissions"]').forEach(input => input.addEventListener("change", refreshPermissionCounts));
   refreshPermissionCounts();
+
+  modalRoot.querySelectorAll("[data-editor-tab]").forEach(tab => tab.addEventListener("click", () => {
+    const name = tab.dataset.editorTab;
+    modalRoot.querySelectorAll("[data-editor-tab]").forEach(item => item.classList.toggle("active", item === tab));
+    modalRoot.querySelectorAll("[data-editor-pane]").forEach(pane => {
+      const active = pane.dataset.editorPane === name;
+      pane.classList.toggle("active", active);
+      pane.hidden = !active;
+    });
+  }));
 
   if (isProtectedOther) {
     const form = document.querySelector("#modal-root form");
