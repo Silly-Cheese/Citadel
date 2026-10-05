@@ -882,8 +882,14 @@ export function createGeneration3(ctx) {
     const now=Date.now();
     const findings=[];
 
+    const breachedCases=data.cases.filter(r=>r.slaDueAt&&isPast(r.slaDueAt)&&!["Resolved","Closed"].includes(r.status));
+    if(breachedCases.length) findings.push({title:"Case SLA breaches",detail:`${breachedCases.length} open cases are beyond their SLA target.`,tone:"danger"});
+
     const staleCases=data.cases.filter(r=>!["Resolved","Closed"].includes(r.status)&&now-asMillis(r.updatedAt||r.createdAt)>7*86400000);
     if(staleCases.length) findings.push({title:"Stale open cases",detail:`${staleCases.length} cases have not changed in more than 7 days.`,tone:"warning"});
+
+    const breachedService=data.service.filter(r=>r.slaDueAt&&isPast(r.slaDueAt)&&!["Resolved","Closed","Cancelled"].includes(r.status));
+    if(breachedService.length) findings.push({title:"Service SLA breaches",detail:`${breachedService.length} service tickets are beyond their SLA target.`,tone:"danger"});
 
     const criticalTickets=data.service.filter(r=>r.priority==="Critical"&&!["Resolved","Closed"].includes(r.status));
     if(criticalTickets.length) findings.push({title:"Critical service tickets",detail:`${criticalTickets.length} critical service tickets remain open.`,tone:"danger"});
