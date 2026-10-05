@@ -610,7 +610,8 @@ service cloud.firestore {
 
     match /workflows/{recordId} {
       allow read: if hasPermission("workflow.view")
-        || hasPermission("workflow.manage");
+        || hasPermission("workflow.manage")
+        || hasPermission("workflow.run");
 
       allow create, update: if hasPermission("workflow.manage");
       allow delete: if false;
