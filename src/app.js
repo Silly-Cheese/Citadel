@@ -277,6 +277,23 @@ function employeeSelect(refs, name, selected = "", { required = false, label = "
   </select>`;
 }
 
+function employeeDisplay(records, employeeId, fallback = "Unassigned") {
+  if (!employeeId) return fallback;
+  const employee = (records || []).find(item => String(item.employeeId || item.id) === String(employeeId));
+  return employee?.displayName || fallback;
+}
+
+function employeeDisplayContext(records, employeeId) {
+  if (!employeeId) return "";
+  const employee = (records || []).find(item => String(item.employeeId || item.id) === String(employeeId));
+  return employee ? [employee.positionName, employee.departmentName].filter(Boolean).join(" · ") : "";
+}
+
+function customerFromHumanId(records, customerId) {
+  if (!customerId) return null;
+  return (records || []).find(item => String(item.customerId || item.id) === String(customerId));
+}
+
 function permissionFriendlyName(permission) {
   const parts = String(permission).split(".");
   const action = parts.slice(1).join(" ");
@@ -1000,7 +1017,7 @@ async function renderHome(target) {
         <section class="card">
           <div class="card-head"><div><h2>Recent cases</h2><p>Latest unresolved casework</p></div><button class="btn btn-sm" data-route-local="cases">View all</button></div>
           ${openCases.length ? `<div class="list">${openCases.slice(0,6).map((caseRecord) => `
-            <div class="list-row"><div class="grow"><strong>${esc(caseRecord.title || "Case")}</strong><span>${esc(caseRecord.category || "General")} · ${esc(caseRecord.assignedEmployeeId || "Unassigned")}</span></div>${statusBadge(caseRecord.status || "Open")}</div>
+            <div class="list-row"><div class="grow"><strong>${esc(caseRecord.title || "Case")}</strong><span>${esc(caseRecord.category || "General")} · ${esc(caseRecord.priority || "Normal")} priority</span></div>${statusBadge(caseRecord.status || "Open")}</div>
           `).join("")}</div>` : '<div class="empty"><strong>No open cases</strong><p>New casework will appear here.</p></div>'}
         </section>
       </div>
@@ -1037,7 +1054,10 @@ async function customerQuery() {
 }
 
 async function renderCustomers(target) {
-  const snap = await customerQuery();
+  const [snap, employees] = await Promise.all([
+    customerQuery(),
+    hasPermission("employee.view") ? safeCollection("employees",250) : Promise.resolve([])
+  ]);
   const customers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   target.innerHTML = `
     <div class="page">
@@ -1056,7 +1076,7 @@ async function renderCustomers(target) {
                 <td>${statusBadge(c.status || "Active")}</td>
                 <td>${classificationBadge(c.classification || "STANDARD")}</td>
                 <td><div>${esc(c.email || "—")}</div><div class="secondary">${esc(c.phone || "")}</div></td>
-                <td>${esc(c.assignedEmployeeId || "Unassigned")}</td>
+                <td><div class="primary-cell">${esc(employeeDisplay(employees,c.assignedEmployeeId))}</div><div class="secondary">${esc(employeeDisplayContext(employees,c.assignedEmployeeId))}</div></td>
                 <td>${esc(fmtDate(c.updatedAt || c.createdAt))}</td>
               </tr>
             `).join("")}</tbody>
@@ -1304,7 +1324,10 @@ async function openCustomer(customer) {
 }
 
 async function renderCases(target) {
-  const cases = await safeCollection("cases", 75);
+  const [cases, refs] = await Promise.all([
+    safeCollection("cases",75),
+    loadReferenceData()
+  ]);
   target.innerHTML = `
     <div class="page">
       ${pageHeader("Cases", "Customer service, escalations, and operational casework.", hasPermission("case.create") ? '<button class="btn btn-primary" data-new-case>New case</button>' : "")}
@@ -1319,8 +1342,8 @@ async function renderCases(target) {
               <td><div class="primary-cell">${esc(c.title || "Untitled case")}</div><div class="secondary">${esc(c.caseId || "—")}</div></td>
               <td>${statusBadge(c.priority || "Normal")}</td>
               <td>${statusBadge(c.status || "Open")}</td>
-              <td>${esc(c.customerId || "—")}</td>
-              <td>${esc(c.assignedEmployeeId || "Unassigned")}</td>
+              <td>${(() => { const customer=customerFromHumanId(refs.customers,c.customerId); return customer ? `<div class="primary-cell">${esc(customerDisplayName(customer))}</div><div class="secondary">${esc(c.customerId || "")}</div>` : esc(c.customerId || "Internal"); })()}</td>
+              <td><div class="primary-cell">${esc(employeeDisplay(refs.employees,c.assignedEmployeeId))}</div><div class="secondary">${esc(employeeDisplayContext(refs.employees,c.assignedEmployeeId))}</div></td>
               <td>${c.slaDueAt ? statusBadge(!closed && slaBreached ? "Breached" : closed ? "Complete" : "On Track") : '<span class="badge">Not set</span>'}</td>
               <td>${esc(fmtDate(c.createdAt))}</td>
             </tr>`;
@@ -1479,14 +1502,17 @@ async function manageEmployeeRecord(person) {
 }
 
 async function renderApprovals(target) {
-  const approvals = await safeCollection("approvals", 75);
+  const [approvals, employees] = await Promise.all([
+    safeCollection("approvals",75),
+    hasPermission("employee.view") ? safeCollection("employees",250) : Promise.resolve([])
+  ]);
   target.innerHTML = `
     <div class="page">
       ${pageHeader("Approvals", "One queue for decisions that require authorized review.")}
       <section class="card">
         <div class="card-head"><div><h2>Approval queue</h2><p>Centralized authorization decisions</p></div></div>
         ${approvals.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Approval</th><th>Type</th><th>Status</th><th>Requester</th><th>Submitted</th></tr></thead><tbody>
-          ${approvals.map((a) => `<tr><td class="primary-cell">${esc(a.approvalId || a.title || "Approval")}</td><td>${esc(a.type || "General")}</td><td>${statusBadge(a.status || "Pending")}</td><td>${esc(a.requesterEmployeeId || "—")}</td><td>${esc(fmtDate(a.createdAt))}</td></tr>`).join("")}
+          ${approvals.map((a) => `<tr><td class="primary-cell">${esc(a.title || a.approvalId || "Approval")}</td><td>${esc(a.type || "General")}</td><td>${statusBadge(a.status || "Pending")}</td><td><div class="primary-cell">${esc(employeeDisplay(employees,a.requesterEmployeeId,"Employee"))}</div><div class="secondary">${esc(employeeDisplayContext(employees,a.requesterEmployeeId))}</div></td><td>${esc(fmtDate(a.createdAt))}</td></tr>`).join("")}
         </tbody></table></div>` : '<div class="empty"><strong>No pending approvals</strong><p>Future workflows will route authorization decisions into this queue.</p></div>'}
       </section>
     </div>
@@ -1545,7 +1571,7 @@ async function renderSecurity(target) {
         </section>
         <section class="card">
           <div class="card-head"><div><h2>Recent audit events</h2><p>System-wide events visible to your authorization</p></div></div>
-          ${audits.length ? `<div class="list">${audits.slice(0,16).map((a) => `<div class="list-row"><div class="grow"><strong>${esc(a.action || "EVENT")}</strong><span>${esc(a.actorEmployeeId || a.actorUid || "System")} · ${esc(fmtDateTime(a.createdAt))}</span></div></div>`).join("")}</div>` : '<div class="empty"><strong>No audit events</strong><p>Security-relevant activity will appear here.</p></div>'}
+          ${audits.length ? `<div class="list">${audits.slice(0,16).map((a) => `<div class="list-row"><div class="grow"><strong>${esc(String(a.action || "Event").replaceAll("_"," ").toLowerCase().replace(/\b\w/g,ch=>ch.toUpperCase()))}</strong><span>${esc(employeeDisplay(employees,a.actorEmployeeId,"System"))} · ${esc(fmtDateTime(a.createdAt))}</span></div></div>`).join("")}</div>` : '<div class="empty"><strong>No audit events</strong><p>Security-relevant activity will appear here.</p></div>'}
         </section>
       </div>
     </div>
