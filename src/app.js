@@ -691,10 +691,25 @@ function newCustomerModal() {
 
 async function openCustomer(customer) {
   let notes = [];
+  let flags = [];
+  let interactions = [];
+  let relatedCases = [];
   try {
-    const noteSnap = await getDocs(query(collection(db, "customerNotes"), where("customerRecordId", "==", customer.id), limit(20)));
+    const [noteSnap, flagSnap, interactionSnap, caseSnap] = await Promise.all([
+      getDocs(query(collection(db, "customerNotes"), where("customerRecordId", "==", customer.id), limit(40))),
+      getDocs(query(collection(db, "customerFlags"), where("customerRecordId", "==", customer.id), limit(30))),
+      getDocs(query(collection(db, "customerInteractions"), where("customerRecordId", "==", customer.id), limit(40))),
+      customer.customerId
+        ? getDocs(query(collection(db, "cases"), where("customerId", "==", customer.customerId), limit(40)))
+        : Promise.resolve({ docs: [] })
+    ]);
     notes = noteSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  } catch {}
+    flags = flagSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    interactions = interactionSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    relatedCases = caseSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    console.warn("Customer 360 related records unavailable", error);
+  }
   await audit("CUSTOMER_VIEWED", "customer", customer.id, { customerId: customer.customerId || null });
   openModal({
     title: customerDisplayName(customer),
@@ -715,10 +730,43 @@ async function openCustomer(customer) {
         <div class="field"><label>Status</label><select class="select" name="status">${["Active","Prospect","Inactive","Archived"].map((v) => `<option ${customer.status === v ? "selected" : ""}>${v}</option>`).join("")}</select></div>
         <div class="field"><label>Classification</label><select class="select" name="classification">${["STANDARD","INTERNAL","CONFIDENTIAL","SENSITIVE","RESTRICTED","HIGHLY_RESTRICTED"].map((v) => `<option ${customer.classification === v ? "selected" : ""}>${v}</option>`).join("")}</select></div>
       </div>
-      <div class="card" style="margin-top:8px">
-        <div class="card-head"><div><h2>Internal notes</h2><p>Authorized employee context</p></div></div>
-        ${notes.length ? `<div class="list">${notes.map((n) => `<div class="list-row"><div class="grow"><strong>${esc(n.body || "Note")}</strong><span>${esc(n.createdByEmployeeId || "Employee")} · ${esc(fmtDateTime(n.createdAt))}</span></div></div>`).join("")}</div>` : '<div class="empty"><strong>No notes yet</strong><p>Customer notes will appear here.</p></div>'}
+      <div class="grid-2" style="margin-top:8px">
+        <div class="section-stack">
+          <div class="card">
+            <div class="card-head"><div><h2>Internal notes</h2><p>Authorized employee context</p></div></div>
+            ${notes.length ? `<div class="list">${notes.slice(0,10).map((n) => `<div class="list-row"><div class="grow"><strong>${esc(n.body || "Note")}</strong><span>${esc(n.createdByEmployeeId || "Employee")} · ${esc(fmtDateTime(n.createdAt))}</span></div></div>`).join("")}</div>` : '<div class="empty"><strong>No notes yet</strong><p>Customer notes will appear here.</p></div>'}
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>Interactions</h2><p>Logged customer communications and contact</p></div></div>
+            ${interactions.length ? `<div class="list">${interactions.slice(0,10).map((i) => `<div class="list-row"><div class="grow"><strong>${esc(i.summary || i.channel || "Interaction")}</strong><span>${esc(i.channel || "Contact")} · ${esc(i.createdByEmployeeId || "Employee")} · ${esc(fmtDateTime(i.createdAt))}</span></div></div>`).join("")}</div>` : '<div class="empty"><strong>No interactions logged</strong><p>Calls, emails, meetings, and other contact will appear here.</p></div>'}
+          </div>
+        </div>
+        <div class="section-stack">
+          <div class="card">
+            <div class="card-head"><div><h2>Flags</h2><p>Operational and risk indicators</p></div></div>
+            ${flags.length ? `<div class="list">${flags.slice(0,10).map((f) => `<div class="list-row"><div class="grow"><strong>${esc(f.name || "Customer flag")}</strong><span>${esc(f.details || "No additional detail")}</span></div>${statusBadge(f.severity || "Normal")}</div>`).join("")}</div>` : '<div class="empty"><strong>No active flags</strong><p>Authorized customer flags will appear here.</p></div>'}
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>Related cases</h2><p>Customer service and operational case history</p></div></div>
+            ${relatedCases.length ? `<div class="list">${relatedCases.slice(0,10).map((r) => `<div class="list-row"><div class="grow"><strong>${esc(r.title || "Case")}</strong><span>${esc(r.caseId || "—")} · ${esc(r.category || "General")}</span></div>${statusBadge(r.status || "Open")}</div>`).join("")}</div>` : '<div class="empty"><strong>No related cases</strong><p>Cases linked to this customer will appear here.</p></div>'}
+          </div>
+        </div>
       </div>
+      ${hasPermission("customer.edit") ? `
+        <div class="card" style="margin-top:14px">
+          <div class="card-head"><div><h2>Record activity</h2><p>Add context without leaving Customer 360</p></div></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <div class="field span-2"><label>New internal note</label><textarea class="textarea" name="newInternalNote" placeholder="Optional internal note"></textarea></div>
+              <div class="field"><label>Interaction channel</label><select class="select" name="interactionChannel"><option value="">No interaction</option><option>Phone</option><option>Email</option><option>SMS</option><option>Meeting</option><option>Portal</option><option>Letter</option><option>Other</option></select></div>
+              <div class="field"><label>Interaction summary</label><input class="input" name="interactionSummary" placeholder="Optional interaction summary" /></div>
+              <div class="field"><label>New flag</label><input class="input" name="newFlagName" placeholder="Optional customer flag" /></div>
+              <div class="field"><label>Flag severity</label><select class="select" name="newFlagSeverity"><option>Normal</option><option>Important</option><option>High</option><option>Critical</option></select></div>
+              <div class="field span-2"><label>Flag details</label><input class="input" name="newFlagDetails" placeholder="Optional flag details" /></div>
+            </div>
+          </div>
+        </div>
+      ` : ""}
     `,
     onSubmit: async (fd) => {
       if (!hasPermission("customer.edit")) {
@@ -740,6 +788,49 @@ async function openCustomer(customer) {
           updatedAt: serverTimestamp(),
           updatedBy: state.user.uid
         });
+
+        const newNote = String(fd.get("newInternalNote") || "").trim();
+        if (newNote) {
+          await addDoc(collection(db, "customerNotes"), {
+            customerRecordId: customer.id,
+            customerId: customer.customerId || null,
+            body: newNote,
+            internal: true,
+            createdBy: state.user.uid,
+            createdByEmployeeId: state.employee?.employeeId || null,
+            createdAt: serverTimestamp()
+          });
+        }
+
+        const interactionChannel = String(fd.get("interactionChannel") || "").trim();
+        const interactionSummary = String(fd.get("interactionSummary") || "").trim();
+        if (interactionChannel && interactionSummary) {
+          await addDoc(collection(db, "customerInteractions"), {
+            customerRecordId: customer.id,
+            customerId: customer.customerId || null,
+            channel: interactionChannel,
+            summary: interactionSummary,
+            createdBy: state.user.uid,
+            createdByEmployeeId: state.employee?.employeeId || null,
+            createdAt: serverTimestamp()
+          });
+        }
+
+        const flagName = String(fd.get("newFlagName") || "").trim();
+        if (flagName) {
+          await addDoc(collection(db, "customerFlags"), {
+            customerRecordId: customer.id,
+            customerId: customer.customerId || null,
+            name: flagName,
+            severity: String(fd.get("newFlagSeverity") || "Normal"),
+            details: String(fd.get("newFlagDetails") || "").trim(),
+            active: true,
+            createdBy: state.user.uid,
+            createdByEmployeeId: state.employee?.employeeId || null,
+            createdAt: serverTimestamp()
+          });
+        }
+
         await audit("CUSTOMER_UPDATED", "customer", customer.id, { customerId: customer.customerId || null });
         toast("Customer updated", customer.customerId || "");
         await renderPage();
