@@ -252,8 +252,38 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    function canUseCounter(counterId) {
+      return hasPermission("system.manage")
+        || isBootstrapOwner()
+        || (counterId == "assets" && hasPermission("asset.manage"))
+        || (counterId == "vendors" && hasPermission("vendor.manage"))
+        || (counterId == "contracts" && hasPermission("contract.manage"))
+        || (counterId == "projects" && hasPermission("project.manage"))
+        || (counterId == "documents" && hasPermission("document.manage"))
+        || (counterId == "announcements" && hasPermission("communications.manage"))
+        || (counterId == "workflows" && hasPermission("workflow.manage"))
+        || (counterId == "leaveRequests" && hasPermission("hr.request.leave"))
+        || (counterId == "performanceReviews" && hasPermission("hr.manage"))
+        || (counterId == "disciplinaryActions" && hasPermission("hr.manage"))
+        || (counterId == "trainingRecords" && hasPermission("training.manage"))
+        || (counterId == "serviceTickets" && hasPermission("service.create"))
+        || (counterId == "purchaseRequests" && hasPermission("procurement.request"))
+        || (counterId == "expenses" && hasPermission("finance.expense.create"))
+        || (counterId == "invoices" && hasPermission("finance.manage"))
+        || (counterId == "policies" && hasPermission("compliance.manage"))
+        || (counterId == "complianceFindings" && hasPermission("compliance.manage"));
+    }
+
     match /counters/{counterId} {
-      allow read, write: if hasPermission("system.manage") || isBootstrapOwner();
+      allow read: if canUseCounter(counterId);
+
+      allow create: if canUseCounter(counterId)
+        && request.resource.data.value == 1;
+
+      allow update: if canUseCounter(counterId)
+        && request.resource.data.value == resource.data.value + 1;
+
+      allow delete: if false;
     }
 
     match /notifications/{notificationId} {
@@ -265,6 +295,196 @@ service cloud.firestore {
         && request.resource.data.recipientUid == resource.data.recipientUid;
 
       allow create: if hasPermission("system.manage");
+      allow delete: if false;
+    }
+
+
+    // ---------------------------------------------------------------------
+    // Generation 2 enterprise operations
+    // Each collection is independently authorized. Citadel does not rely on
+    // frontend navigation or hidden buttons for access control.
+    // ---------------------------------------------------------------------
+
+    match /leaveRequests/{recordId} {
+      allow read: if hasPermission("hr.view")
+        || (signedIn() && resource.data.requesterUid == uid());
+
+      allow create: if hasPermission("hr.request.leave")
+        && request.resource.data.requesterUid == uid();
+
+      allow update: if hasPermission("hr.manage");
+      allow delete: if false;
+    }
+
+    match /performanceReviews/{recordId} {
+      allow read: if hasPermission("hr.view");
+      allow create, update: if hasPermission("hr.manage");
+      allow delete: if false;
+    }
+
+    match /disciplinaryActions/{recordId} {
+      allow read: if hasPermission("hr.view");
+      allow create, update: if hasPermission("hr.manage");
+      allow delete: if false;
+    }
+
+    match /trainingRecords/{recordId} {
+      allow read: if hasPermission("training.view")
+        || (
+          hasPermission("training.self")
+          && resource.data.employeeId == profile().employeeId
+        );
+
+      allow create, update: if hasPermission("training.manage");
+      allow delete: if false;
+    }
+
+    match /serviceTickets/{recordId} {
+      allow read: if hasPermission("service.view")
+        || (signedIn() && resource.data.requesterUid == uid());
+
+      allow create: if hasPermission("service.create")
+        && request.resource.data.requesterUid == uid();
+
+      allow update: if hasPermission("service.manage");
+      allow delete: if false;
+    }
+
+    match /assets/{recordId} {
+      allow read: if hasPermission("asset.view");
+      allow create, update: if hasPermission("asset.manage");
+      allow delete: if false;
+    }
+
+    match /purchaseRequests/{recordId} {
+      allow read: if hasPermission("procurement.view")
+        || (signedIn() && resource.data.requesterUid == uid());
+
+      allow create: if hasPermission("procurement.request")
+        && request.resource.data.requesterUid == uid();
+
+      allow update: if hasPermission("procurement.manage");
+      allow delete: if false;
+    }
+
+    match /vendors/{recordId} {
+      allow read: if hasPermission("vendor.view")
+        || hasPermission("procurement.view");
+
+      allow create, update: if hasPermission("vendor.manage");
+      allow delete: if false;
+    }
+
+    match /contracts/{recordId} {
+      allow read: if hasPermission("contract.view")
+        && classificationAllowed(resource.data.classification);
+
+      allow create: if hasPermission("contract.manage")
+        && classificationAllowed(request.resource.data.classification);
+
+      allow update: if hasPermission("contract.manage")
+        && classificationAllowed(resource.data.classification)
+        && classificationAllowed(request.resource.data.classification);
+
+      allow delete: if false;
+    }
+
+    match /expenses/{recordId} {
+      allow read: if hasPermission("finance.view")
+        || (signedIn() && resource.data.requesterUid == uid());
+
+      allow create: if hasPermission("finance.expense.create")
+        && request.resource.data.requesterUid == uid();
+
+      allow update: if hasPermission("finance.manage");
+      allow delete: if false;
+    }
+
+    match /invoices/{recordId} {
+      allow read: if hasPermission("finance.view");
+      allow create, update: if hasPermission("finance.manage");
+      allow delete: if false;
+    }
+
+    match /projects/{recordId} {
+      allow read: if hasPermission("project.view");
+      allow create, update: if hasPermission("project.manage");
+      allow delete: if false;
+    }
+
+    match /documents/{recordId} {
+      allow read: if hasPermission("document.view")
+        && classificationAllowed(resource.data.classification);
+
+      allow create: if hasPermission("document.manage")
+        && classificationAllowed(request.resource.data.classification);
+
+      allow update: if hasPermission("document.manage")
+        && classificationAllowed(resource.data.classification)
+        && classificationAllowed(request.resource.data.classification);
+
+      allow delete: if false;
+    }
+
+    match /announcements/{recordId} {
+      allow read: if hasPermission("communications.view");
+      allow create, update: if hasPermission("communications.manage");
+      allow delete: if false;
+    }
+
+    match /policies/{recordId} {
+      allow read: if hasPermission("compliance.view");
+      allow create, update: if hasPermission("compliance.manage");
+      allow delete: if false;
+    }
+
+    match /policyAcknowledgements/{recordId} {
+      allow read: if hasPermission("compliance.view")
+        || (signedIn() && resource.data.employeeUid == uid());
+
+      allow create: if activeAccount()
+        && request.resource.data.employeeUid == uid();
+
+      allow update, delete: if false;
+    }
+
+    match /complianceFindings/{recordId} {
+      allow read: if hasPermission("compliance.view");
+      allow create, update: if hasPermission("compliance.manage");
+      allow delete: if false;
+    }
+
+    match /workflows/{recordId} {
+      allow read: if hasPermission("workflow.view")
+        || hasPermission("workflow.manage");
+
+      allow create, update: if hasPermission("workflow.manage");
+      allow delete: if false;
+    }
+
+    match /workflowRuns/{recordId} {
+      allow read: if hasPermission("workflow.view")
+        || hasPermission("workflow.manage");
+
+      allow create, update: if hasPermission("workflow.manage");
+      allow delete: if false;
+    }
+
+    match /departments/{recordId} {
+      allow read: if activeAccount();
+      allow create, update: if hasPermission("organization.manage");
+      allow delete: if false;
+    }
+
+    match /positions/{recordId} {
+      allow read: if activeAccount();
+      allow create, update: if hasPermission("organization.manage");
+      allow delete: if false;
+    }
+
+    match /locations/{recordId} {
+      allow read: if activeAccount();
+      allow create, update: if hasPermission("organization.manage");
       allow delete: if false;
     }
 
