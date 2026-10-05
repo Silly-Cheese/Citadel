@@ -41,7 +41,7 @@ export const statusBadge = (status = "Unknown") => {
     ? "success"
     : ["pending","in progress","pending customer","pending internal"].includes(s)
       ? "warning"
-      : ["suspended","denied","restricted","escalated"].includes(s)
+      : ["suspended","denied","restricted","escalated","breached","critical","off track","lost"].includes(s)
         ? "danger"
         : "info";
   return `<span class="badge ${tone}">${esc(status)}</span>`;
