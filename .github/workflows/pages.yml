@@ -50,19 +50,19 @@ jobs:
           index = root / "index.html"
           text = index.read_text()
           text = text.replace('content="development" data-citadel-build', f'content="{build}" data-citadel-build')
-          text = text.replace('href="./styles.css"', f'href="./styles.css?v={build}"')
-          text = text.replace('src="./src/app.js"', f'src="./src/app.js?v={build}"')
+          text = re.sub(r'href="\.\/styles\.css(?:\?[^"]*)?"', f'href="./styles.css?v={build}"', text)
+          text = re.sub(r'src="\.\/src\/app\.js(?:\?[^"]*)?"', f'src="./src/app.js?v={build}"', text)
           index.write_text(text)
 
           for path in (root / "src").glob("*.js"):
               source = path.read_text()
               source = re.sub(
-                  r'(from\s+["\'])(\.\/[^"\']+\.js)(["\'])',
+                  r'(from\s+["\'])(\.\/[^"\']+\.js)(?:\?[^"\']*)?(["\'])',
                   lambda m: f'{m.group(1)}{m.group(2)}?v={build}{m.group(3)}',
                   source,
               )
               source = re.sub(
-                  r'(import\s*\(\s*["\'])(\.\/[^"\']+\.js)(["\']\s*\))',
+                  r'(import\s*\(\s*["\'])(\.\/[^"\']+\.js)(?:\?[^"\']*)?(["\']\s*\))',
                   lambda m: f'{m.group(1)}{m.group(2)}?v={build}{m.group(3)}',
                   source,
               )
