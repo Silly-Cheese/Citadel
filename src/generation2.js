@@ -18,6 +18,7 @@ export const GENERATION2_PERMISSIONS = [
   "hr.manage",
   "hr.request.leave",
   "training.view",
+  "training.self",
   "training.manage",
   "asset.view",
   "asset.manage",
@@ -49,7 +50,7 @@ export const GENERATION2_PERMISSIONS = [
 
 export const GENERATION2_NAV = [
   { section: "People", id: "hr", label: "HR Operations", icon: "◫", anyPermission: ["hr.view", "hr.request.leave"] },
-  { section: "People", id: "training", label: "Training", icon: "△", permission: "training.view" },
+  { section: "People", id: "training", label: "Training", icon: "△", anyPermission: ["training.view", "training.self"] },
 
   { section: "Operations", id: "service", label: "Service Desk", icon: "◇", anyPermission: ["service.view", "service.create"] },
   { section: "Operations", id: "assets", label: "Assets", icon: "▣", permission: "asset.view" },
@@ -588,7 +589,7 @@ export function createGeneration2(ctx) {
     const canAll = hasPermission("training.view");
     const records = canAll
       ? await safeCollection("trainingRecords",100)
-      : await getDocs(query(collection(db,"trainingRecords"),where("employeeUid","==",state.user.uid),limit(100))).then(s=>s.docs.map(d=>({id:d.id,...d.data()})));
+      : await getDocs(query(collection(db,"trainingRecords"),where("employeeId","==",state.employee?.employeeId || "__none__"),limit(100))).then(s=>s.docs.map(d=>({id:d.id,...d.data()})));
     target.innerHTML = `
       <div class="page">
         ${pageHeader("Training", "Required learning, certifications, completions, and renewal tracking.", hasPermission("training.manage") ? '<button class="btn btn-primary" data-training>Add training record</button>' : "")}
