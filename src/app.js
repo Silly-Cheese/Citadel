@@ -365,6 +365,10 @@ function renderOwnerBootstrap() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
+      batch.set(doc(db, "counters", "employees"), {
+        value: 1,
+        updatedAt: serverTimestamp()
+      });
       batch.update(doc(db, "system", "bootstrap"), {
         initialized: true,
         initializedBy: uid,
