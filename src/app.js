@@ -450,7 +450,7 @@ function navHtml() {
 }
 
 function renderShell() {
-  if (!NAV.some((n) => n.id === state.route)) state.route = "home";
+  if (!NAV.some((n) => n.id === state.route) && state.route !== "search") state.route = "home";
   app.innerHTML = `
     <div class="app-shell" id="shell">
       <div class="mobile-overlay" data-close-menu></div>
