@@ -45,7 +45,23 @@ service cloud.firestore {
         && profile().isSystemOwner == true;
     }
 
-    function hasPermission(permission) {
+    function temporaryAccessExists() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/temporaryAccess/$(uid()));
+    }
+
+    function temporaryAccess() {
+      return get(/databases/$(database)/documents/temporaryAccess/$(uid())).data;
+    }
+
+    function temporaryAccessActive() {
+      return temporaryAccessExists()
+        && temporaryAccess().active == true
+        && temporaryAccess().expiresAt is timestamp
+        && request.time < temporaryAccess().expiresAt;
+    }
+
+    function hasPermanentPermission(permission) {
       return activeAccount()
         && (
           profile().isSystemOwner == true
@@ -53,9 +69,27 @@ service cloud.firestore {
         );
     }
 
+    function hasPermission(permission) {
+      return activeAccount()
+        && (
+          profile().isSystemOwner == true
+          || profile().permissions.hasAny([permission])
+          || (
+            temporaryAccessActive()
+            && temporaryAccess().permissions.hasAny([permission])
+          )
+        );
+    }
+
     function clearanceAtLeast(level) {
       return activeAccount()
-        && profile().clearanceLevel >= level;
+        && (
+          profile().clearanceLevel >= level
+          || (
+            temporaryAccessActive()
+            && temporaryAccess().clearanceLevel >= level
+          )
+        );
     }
 
     function classificationLevel(classification) {
@@ -75,7 +109,7 @@ service cloud.firestore {
     function classifiedRecordAllowed(data) {
       return activeAccount()
         && data.minimumClearance is int
-        && data.minimumClearance <= profile().clearanceLevel;
+        && clearanceAtLeast(data.minimumClearance);
     }
 
     function validClassification(data) {
@@ -304,7 +338,8 @@ service cloud.firestore {
     }
 
     match /auditEvents/{eventId} {
-      allow read: if hasPermission("audit.view");
+      allow read: if hasPermission("audit.view")
+        || hasPermission("audit.export");
 
       allow create: if (
           signedIn()
@@ -342,7 +377,11 @@ service cloud.firestore {
         || (counterId == "positions" && hasPermission("organization.manage"))
         || (counterId == "locations" && hasPermission("organization.manage"))
         || (counterId == "risks" && hasPermission("risk.manage"))
-        || (counterId == "investigations" && hasPermission("investigation.manage"));
+        || (counterId == "investigations" && hasPermission("investigation.manage"))
+        || (counterId == "savedReports" && hasPermission("report.manage"))
+        || (counterId == "workflowRuns" && hasPermission("workflow.run"))
+        || (counterId == "accessRequests" && hasPermission("access.request"))
+        || (counterId == "securityAlerts" && hasPermission("security.alerts.manage"));
     }
 
     match /counters/{counterId} {
@@ -579,9 +618,27 @@ service cloud.firestore {
 
     match /workflowRuns/{recordId} {
       allow read: if hasPermission("workflow.view")
+        || hasPermission("workflow.manage")
+        || hasPermission("workflow.run");
+
+      allow create: if hasPermission("workflow.run")
+        && request.resource.data.startedByUid == uid();
+
+      allow update: if hasPermission("workflow.run.manage")
         || hasPermission("workflow.manage");
 
-      allow create, update: if hasPermission("workflow.manage");
+      allow delete: if false;
+    }
+
+    match /workflowTasks/{recordId} {
+      allow read: if hasPermission("workflow.run")
+        || hasPermission("workflow.manage");
+
+      allow create: if hasPermission("workflow.run");
+
+      allow update: if hasPermission("workflow.run.manage")
+        || hasPermission("workflow.manage");
+
       allow delete: if false;
     }
 
@@ -600,6 +657,82 @@ service cloud.firestore {
     match /locations/{recordId} {
       allow read: if activeAccount();
       allow create, update: if hasPermission("organization.manage");
+      allow delete: if false;
+    }
+
+
+    // ---------------------------------------------------------------------
+    // Generation 3 intelligence, temporary access, reporting, and automation
+    // ---------------------------------------------------------------------
+
+    match /dashboardPreferences/{userId} {
+      allow read, create, update: if signedIn()
+        && userId == uid()
+        && hasPermission("dashboard.customize");
+
+      allow delete: if false;
+    }
+
+    match /savedReports/{recordId} {
+      allow read: if hasPermission("report.view");
+      allow create, update: if hasPermission("report.manage");
+      allow delete: if false;
+    }
+
+    match /securityAlerts/{recordId} {
+      allow read: if hasPermission("security.alerts.view");
+      allow create, update: if hasPermission("security.alerts.manage");
+      allow delete: if false;
+    }
+
+    match /accessRequests/{recordId} {
+      allow read: if (
+          signedIn()
+          && resource.data.requesterUid == uid()
+        )
+        || (
+          hasPermanentPermission("access.temporary.manage")
+          && clearanceAtLeast(8)
+        );
+
+      allow create: if hasPermission("access.request")
+        && request.resource.data.requesterUid == uid()
+        && request.resource.data.status == "Pending";
+
+      allow update: if hasPermanentPermission("access.temporary.manage")
+        && clearanceAtLeast(8);
+
+      allow delete: if false;
+    }
+
+    match /temporaryAccess/{userId} {
+      allow read: if signedIn()
+        && (
+          userId == uid()
+          || (
+            hasPermanentPermission("access.temporary.manage")
+            && clearanceAtLeast(8)
+          )
+        );
+
+      allow create, update: if hasPermanentPermission("access.temporary.manage")
+        && clearanceAtLeast(8)
+        && request.resource.data.userId == userId
+        && request.resource.data.clearanceLevel is int
+        && request.resource.data.clearanceLevel >= 0
+        && request.resource.data.clearanceLevel <= 9
+        && request.resource.data.permissions is list
+        && !request.resource.data.permissions.hasAny([
+          "system.manage",
+          "access.manage",
+          "access.temporary.manage",
+          "security.manage",
+          "employee.manage",
+          "organization.manage",
+          "admin.organization.manage"
+        ])
+        && request.resource.data.expiresAt is timestamp;
+
       allow delete: if false;
     }
 
