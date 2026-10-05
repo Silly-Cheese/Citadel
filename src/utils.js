@@ -37,11 +37,11 @@ export const fmtDateTime = (value) => {
 
 export const statusBadge = (status = "Unknown") => {
   const s = String(status).toLowerCase();
-  const tone = ["active","approved","resolved","closed"].includes(s)
+  const tone = ["active","approved","resolved","closed","complete","completed","on track","paid"].includes(s)
     ? "success"
-    : ["pending","in progress","pending customer","pending internal"].includes(s)
+    : ["pending","in progress","pending customer","pending internal","high","at risk","monitoring"].includes(s)
       ? "warning"
-      : ["suspended","denied","restricted","escalated","breached","critical","off track","lost"].includes(s)
+      : ["suspended","denied","restricted","escalated","breached","critical","severe","off track","lost"].includes(s)
         ? "danger"
         : "info";
   return `<span class="badge ${tone}">${esc(status)}</span>`;
