@@ -217,6 +217,50 @@ function customerRequiredAccessLevel(classification, recordLocked = false, lockM
   return Math.max(base, lock);
 }
 
+let customerAccessMigrationChecked = false;
+async function ensureCustomerAccessModel() {
+  if (customerAccessMigrationChecked || state.profile?.isSystemOwner !== true) return;
+  customerAccessMigrationChecked = true;
+
+  try {
+    const snap = await getDocs(query(
+      collection(db,"customers"),
+      where("classification","in",["STANDARD","INTERNAL","CONFIDENTIAL","SENSITIVE","RESTRICTED","HIGHLY_RESTRICTED"])
+    ));
+    const pending = snap.docs.filter(customerDoc => {
+      const data = customerDoc.data();
+      return !Number.isInteger(data.accessLevel)
+        || typeof data.recordLocked !== "boolean"
+        || !Number.isInteger(data.lockMinimumClearance);
+    });
+
+    for (let offset = 0; offset < pending.length; offset += 400) {
+      const batch = writeBatch(db);
+      pending.slice(offset, offset + 400).forEach(customerDoc => {
+        const data = customerDoc.data();
+        const recordLocked = data.recordLocked === true;
+        const lockMinimumClearance = Number.isInteger(data.lockMinimumClearance) ? data.lockMinimumClearance : 0;
+        batch.update(customerDoc.ref,{
+          recordLocked,
+          lockMinimumClearance: recordLocked ? lockMinimumClearance : 0,
+          lockReasonCode: data.lockReasonCode || "",
+          lockReasonDetail: data.lockReasonDetail || "",
+          accessLevel: customerRequiredAccessLevel(data.classification || "STANDARD",recordLocked,lockMinimumClearance),
+          updatedAt: serverTimestamp(),
+          updatedBy: state.user.uid
+        });
+      });
+      await batch.commit();
+    }
+    if (pending.length) {
+      await audit("CUSTOMER_ACCESS_MODEL_MIGRATED","customer","customers",{ recordCount: pending.length });
+    }
+  } catch (error) {
+    customerAccessMigrationChecked = false;
+    console.warn("Customer access-level migration deferred",error);
+  }
+}
+
 function accountName() {
   return state.employee?.displayName || state.userRecord?.displayName || state.user?.displayName || state.user?.email || "Citadel User";
 }
@@ -298,11 +342,19 @@ async function loadReferenceData() {
       : Promise.resolve(),
     hasPermission("customer.view")
       ? (async () => {
-          const snap = await getDocs(query(
+          await ensureCustomerAccessModel();
+          let snap = await getDocs(query(
             collection(db,"customers"),
-            where("classification","in",classificationsForClearance()),
+            where("accessLevel","in",customerAccessLevelsForClearance()),
             limit(250)
           ));
+          if (snap.empty && state.profile?.isSystemOwner === true) {
+            snap = await getDocs(query(
+              collection(db,"customers"),
+              where("classification","in",classificationsForClearance()),
+              limit(250)
+            ));
+          }
           refs.customers = snap.docs
             .map(d => ({ id:d.id, ...d.data() }))
             .sort((a,b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
@@ -963,9 +1015,10 @@ async function renderHome(target) {
   const [customers, cases, approvals, requests, serviceTickets, notifications] = await Promise.all([
     hasPermission("customer.view") ? (async () => {
       try {
+        await ensureCustomerAccessModel();
         const snap = await getDocs(query(
           collection(db,"customers"),
-          where("classification","in",classificationsForClearance()),
+          where("accessLevel","in",customerAccessLevelsForClearance()),
           limit(100)
         ));
         return snap.docs
@@ -1080,13 +1133,21 @@ async function customerQuery() {
   const term = state.search.trim().toLowerCase();
   const clearance = effectiveClearance();
 
-  // No composite indexes: fetch only records authorized by the single
-  // minimumClearance field, then apply text/ID filtering in memory.
-  const snap = await getDocs(query(
+  await ensureCustomerAccessModel();
+
+  let snap = await getDocs(query(
     collection(db, "customers"),
-    where("classification", "in", classificationsForClearance(clearance)),
+    where("accessLevel", "in", customerAccessLevelsForClearance(clearance)),
     limit(200)
   ));
+
+  if (snap.empty && state.profile?.isSystemOwner === true) {
+    snap = await getDocs(query(
+      collection(db,"customers"),
+      where("classification","in",classificationsForClearance(clearance)),
+      limit(200)
+    ));
+  }
 
   if (!term) return snap;
 
