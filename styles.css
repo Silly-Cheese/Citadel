@@ -1998,3 +1998,235 @@ body {
   .home-temp-badge { grid-column: auto; }
   .quick-grid { grid-template-columns: 1fr; }
 }
+
+
+/* Access editor v2 — robust tabbed security workspace */
+.access-editor {
+  display: grid;
+  gap: 16px;
+}
+.access-editor-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 13px 14px;
+  border: 1px solid rgba(148,163,184,.15);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.018), transparent),
+    #0d141c;
+}
+.access-editor-avatar {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(203,213,225,.18);
+  border-radius: 10px;
+  background: #192331;
+  color: #eef3f8;
+  font-size: 11px;
+  font-weight: 800;
+}
+.access-editor-summary .grow {
+  min-width: 0;
+  flex: 1;
+}
+.access-editor-summary .grow strong {
+  display: block;
+  color: #f5f7fa;
+  font-size: 12px;
+}
+.access-editor-summary .grow span {
+  display: block;
+  margin-top: 4px;
+  color: #7e899a;
+  font-size: 9px;
+}
+
+.editor-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(148,163,184,.13);
+  border-radius: 11px;
+  background: #0b1118;
+}
+.editor-tab {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 1;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #8793a4;
+  font-size: 10px;
+  font-weight: 760;
+}
+.editor-tab:hover {
+  color: #dce3eb;
+  background: rgba(255,255,255,.025);
+}
+.editor-tab.active {
+  background: #18222e;
+  color: #f2f5f8;
+  box-shadow: inset 0 0 0 1px rgba(203,213,225,.10);
+}
+.tab-count {
+  min-width: 20px;
+  min-height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #0c131b;
+  color: #aeb8c6;
+  font-size: 8px;
+}
+
+.editor-pane {
+  min-height: 260px;
+  padding: 18px;
+  border: 1px solid rgba(148,163,184,.13);
+  border-radius: 12px;
+  background: #0c131b;
+}
+.editor-pane[hidden] {
+  display: none !important;
+}
+.editor-pane-head {
+  margin-bottom: 18px;
+}
+.editor-pane-head h3,
+.permission-field .field-heading h3 {
+  margin: 0;
+  color: #f1f5f9;
+  font-size: 13px;
+  letter-spacing: -.015em;
+}
+.editor-pane-head p,
+.permission-field .field-heading span {
+  margin: 5px 0 0;
+  color: #788596;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.access-explainer {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 9px;
+  margin-top: 4px;
+}
+.access-explainer > div {
+  min-height: 70px;
+  padding: 12px;
+  border: 1px solid rgba(148,163,184,.11);
+  border-radius: 10px;
+  background: #0a1017;
+}
+.access-explainer span {
+  display: block;
+  color: #707d8f;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.access-explainer strong {
+  display: block;
+  margin-top: 8px;
+  color: #eef2f6;
+  font-size: 14px;
+}
+
+.permission-group {
+  overflow: hidden;
+  border: 1px solid rgba(148,163,184,.15);
+  border-radius: 11px;
+  background: #0b1118;
+}
+.permission-group + .permission-group {
+  margin-top: 0;
+}
+.permission-group-head {
+  width: 100%;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 0;
+  background: #111923;
+  color: inherit;
+  text-align: left;
+}
+.permission-group-head:hover {
+  background: #151f2b;
+}
+.permission-group-text {
+  min-width: 0;
+  display: block;
+}
+.permission-group-text strong {
+  display: block;
+  color: #eef3f7;
+  font-size: 11px;
+}
+.permission-group-text small {
+  display: block;
+  margin-top: 3px;
+  color: #728094;
+  font-size: 9px;
+}
+.permission-group.is-open .permission-chevron {
+  transform: rotate(180deg);
+}
+.permission-group-body[hidden] {
+  display: none !important;
+}
+.permission-group-body {
+  display: block;
+  border-top: 1px solid rgba(148,163,184,.09);
+}
+.permission-group.has-selection > .permission-group-head {
+  background:
+    linear-gradient(90deg, rgba(226,232,240,.035), transparent 45%),
+    #111923;
+}
+.permission-list {
+  background: #0b1118;
+}
+.permission-row {
+  min-height: 58px;
+}
+.permission-row:hover {
+  background: #101923;
+}
+.permission-copy strong {
+  font-size: 10.5px;
+}
+.permission-copy small {
+  color: #647287;
+  font-size: 8px;
+}
+.permission-picker {
+  max-height: 520px;
+  gap: 8px;
+  padding-right: 5px;
+}
+
+@media (max-width: 760px) {
+  .access-explainer {
+    grid-template-columns: 1fr;
+  }
+  .editor-pane {
+    padding: 14px;
+  }
+  .editor-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+  }
+}
