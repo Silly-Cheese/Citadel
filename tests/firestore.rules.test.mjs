@@ -131,7 +131,7 @@ test("Citadel customer clearance query is authorized", async () => {
   });
 
   const db = env.authenticatedContext("csrquery").firestore();
-  const q = query(collection(db, "customers"), where("minimumClearance", "<=", 1));
+  const q = query(collection(db, "customers"), where("classification", "in", ["STANDARD","INTERNAL"]));
   const snap = await assertSucceeds(getDocs(q));
   if (snap.size !== 2) throw new Error(`Expected 2 authorized customers, received ${snap.size}`);
 });
@@ -160,7 +160,7 @@ test("classified registry queries are authorized at the caller clearance", async
 
   const db = env.authenticatedContext("classifiedquery").firestore();
   for (const name of ["contracts", "documents", "investigations"]) {
-    const q = query(collection(db, name), where("minimumClearance", "<=", 4));
+    const q = query(collection(db, name), where("classification", "in", ["STANDARD","INTERNAL","CONFIDENTIAL","SENSITIVE"]));
     const snap = await assertSucceeds(getDocs(q));
     if (snap.size !== 1) throw new Error(`${name}: expected 1 authorized record, received ${snap.size}`);
   }
