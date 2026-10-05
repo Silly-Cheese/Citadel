@@ -31,6 +31,7 @@ import {
   customerDisplayName
 } from "./utils.js";
 import { toast, openModal } from "./ui.js";
+import { createGeneration2, GENERATION2_NAV, GENERATION2_PERMISSIONS } from "./generation2.js";
 
 const app = document.getElementById("app");
 
@@ -65,7 +66,8 @@ const OWNER_PERMISSIONS = [
   "audit.view",
   "security.manage",
   "admin.organization.manage",
-  "workflow.manage"
+  "workflow.manage",
+  ...GENERATION2_PERMISSIONS
 ];
 
 const NAV = [
@@ -74,6 +76,7 @@ const NAV = [
   { section: "Workspace", id: "cases", label: "Cases", icon: "◇", permission: "case.view" },
   { section: "Organization", id: "people", label: "People", icon: "◎", permission: "employee.view" },
   { section: "Organization", id: "approvals", label: "Approvals", icon: "✓", permission: "approval.view" },
+  ...GENERATION2_NAV,
   { section: "Control", id: "security", label: "Security", icon: "◆", permission: "security.manage" },
   { section: "Control", id: "admin", label: "Administration", icon: "⚙", permission: "system.manage" }
 ];
@@ -422,7 +425,10 @@ function renderPendingAccess(bootstrapConfigured) {
 
 function navHtml() {
   let lastSection = "";
-  return NAV.filter((item) => !item.permission || hasPermission(item.permission)).map((item) => {
+  return NAV.filter((item) => {
+    if (item.anyPermission) return item.anyPermission.some((permission) => hasPermission(permission));
+    return !item.permission || hasPermission(item.permission);
+  }).map((item) => {
     const label = item.section !== lastSection ? `<div class="nav-label">${esc(item.section)}</div>` : "";
     lastSection = item.section;
     return `${label}<button class="nav-item ${state.route === item.id ? "active" : ""}" data-route="${item.id}">
@@ -500,7 +506,8 @@ async function renderPage() {
       people: renderPeople,
       approvals: renderApprovals,
       security: renderSecurity,
-      admin: renderAdmin
+      admin: renderAdmin,
+      ...generation2.renderers
     };
     await (renderers[state.route] || renderHome)(target);
   } catch (error) {
@@ -982,7 +989,19 @@ function approveAccountModal(request) {
           active: true,
           clearanceLevel: clearance,
           roles: ["GENERAL_EMPLOYEE"],
-          permissions: ["customer.view", "case.view", "case.create", "employee.view"],
+          permissions: [
+            "customer.view",
+            "case.view",
+            "case.create",
+            "employee.view",
+            "service.create",
+            "hr.request.leave",
+            "training.view",
+            "procurement.request",
+            "finance.expense.create",
+            "communications.view",
+            "document.view"
+          ],
           isSystemOwner: false,
           protectedPrincipal: false,
           scope: "assigned",
@@ -1007,6 +1026,19 @@ function approveAccountModal(request) {
     }
   });
 }
+
+const generation2 = createGeneration2({
+  state,
+  hasPermission,
+  nextId,
+  audit,
+  safeCollection,
+  pageHeader,
+  renderPage,
+  toast,
+  openModal,
+  firebaseMessage
+});
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
