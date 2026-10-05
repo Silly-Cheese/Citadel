@@ -186,6 +186,18 @@ function classificationLevel(value = "STANDARD") {
   return levels[String(value).toUpperCase()] ?? 0;
 }
 
+function classificationsForClearance(level = effectiveClearance()) {
+  const clearance = Number(level || 0);
+  return [
+    "STANDARD",
+    clearance >= 1 && "INTERNAL",
+    clearance >= 2 && "CONFIDENTIAL",
+    clearance >= 4 && "SENSITIVE",
+    clearance >= 6 && "RESTRICTED",
+    clearance >= 8 && "HIGHLY_RESTRICTED"
+  ].filter(Boolean);
+}
+
 function accountName() {
   return state.employee?.displayName || state.userRecord?.displayName || state.user?.displayName || state.user?.email || "Citadel User";
 }
@@ -267,10 +279,14 @@ async function loadReferenceData() {
       : Promise.resolve(),
     hasPermission("customer.view")
       ? (async () => {
-          const snap = state.profile?.isSystemOwner === true
-            ? await getDocs(query(collection(db,"customers"),orderBy("createdAt","desc"),limit(250)))
-            : await getDocs(query(collection(db,"customers"),where("minimumClearance","<=",effectiveClearance()),limit(250)));
-          refs.customers = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+          const snap = await getDocs(query(
+            collection(db,"customers"),
+            where("classification","in",classificationsForClearance()),
+            limit(250)
+          ));
+          refs.customers = snap.docs
+            .map(d => ({ id:d.id, ...d.data() }))
+            .sort((a,b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
         })()
       : Promise.resolve()
   ];
@@ -927,10 +943,14 @@ async function renderHome(target) {
   const [customers, cases, approvals, requests, serviceTickets, notifications] = await Promise.all([
     hasPermission("customer.view") ? (async () => {
       try {
-        const snap = state.profile?.isSystemOwner === true
-          ? await getDocs(query(collection(db,"customers"),orderBy("createdAt","desc"),limit(100)))
-          : await getDocs(query(collection(db,"customers"),where("minimumClearance","<=",effectiveClearance()),limit(100)));
-        return snap.docs.map(d=>({id:d.id,...d.data()}));
+        const snap = await getDocs(query(
+          collection(db,"customers"),
+          where("classification","in",classificationsForClearance()),
+          limit(100)
+        ));
+        return snap.docs
+          .map(d=>({id:d.id,...d.data()}))
+          .sort((a,b)=>(b.createdAt?.toMillis?.()||0)-(a.createdAt?.toMillis?.()||0));
       } catch { return []; }
     })() : [],
     hasPermission("case.view") ? safeCollection("cases", 100) : [],
@@ -1042,9 +1062,11 @@ async function customerQuery() {
 
   // No composite indexes: fetch only records authorized by the single
   // minimumClearance field, then apply text/ID filtering in memory.
-  const snap = state.profile?.isSystemOwner === true
-    ? await getDocs(query(collection(db, "customers"), orderBy("createdAt", "desc"), limit(200)))
-    : await getDocs(query(collection(db, "customers"), where("minimumClearance", "<=", clearance), limit(200)));
+  const snap = await getDocs(query(
+    collection(db, "customers"),
+    where("classification", "in", classificationsForClearance(clearance)),
+    limit(200)
+  ));
 
   if (!term) return snap;
 
@@ -1942,6 +1964,7 @@ const generation2 = createGeneration2({
   state,
   hasPermission,
   effectiveClearance,
+  classificationsForClearance,
   nextId,
   audit,
   safeCollection,
@@ -1956,6 +1979,7 @@ const generation3 = createGeneration3({
   state,
   hasPermission,
   effectiveClearance,
+  classificationsForClearance,
   nextId,
   audit,
   safeCollection,
