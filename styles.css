@@ -2341,3 +2341,57 @@ body {
 .nav-section-items[hidden] {
   display: none !important;
 }
+
+
+/* Registry productivity controls */
+.registry-head {
+  align-items: flex-start;
+}
+.registry-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.registry-search {
+  position: relative;
+  width: min(320px,34vw);
+}
+.registry-search > span {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6f7c8e;
+  font-size: 11px;
+  pointer-events: none;
+}
+.registry-search .input {
+  height: 35px;
+  padding-left: 31px;
+  font-size: 11px;
+}
+.registry-filter {
+  width: auto;
+  min-width: 135px;
+  height: 35px;
+  font-size: 10px;
+}
+.table tr[hidden] {
+  display: none !important;
+}
+@media (max-width: 760px) {
+  .registry-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .registry-tools {
+    width: 100%;
+  }
+  .registry-search {
+    width: 100%;
+  }
+  .registry-filter {
+    flex: 1;
+  }
+}
