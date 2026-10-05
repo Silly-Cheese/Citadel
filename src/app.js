@@ -1218,7 +1218,7 @@ async function renderPeople(target) {
         <div class="card-head"><div><h2>Employee directory</h2><p>${people.length} authorized result${people.length === 1 ? "" : "s"}</p></div></div>
         ${people.length ? `<div class="table-wrap"><table class="table">
           <thead><tr><th>Employee</th><th>Position</th><th>Department</th><th>Status</th><th>Clearance</th></tr></thead>
-          <tbody>${people.map((p) => `<tr>
+          <tbody>${people.map((p) => `<tr data-employee-record="${esc(p.id)}" style="${hasPermission("employee.manage") ? "cursor:pointer" : ""}">
             <td><div class="primary-cell">${esc(p.displayName || "Unnamed employee")}</div><div class="secondary">${esc(p.employeeId || "—")} · ${esc(p.workEmail || "")}</div></td>
             <td>${esc(p.positionName || "—")}</td>
             <td>${esc(p.departmentName || "—")}</td>
@@ -1229,6 +1229,73 @@ async function renderPeople(target) {
       </section>
     </div>
   `;
+
+  if (hasPermission("employee.manage")) {
+    target.querySelectorAll("[data-employee-record]").forEach(row => row.addEventListener("click", () => {
+      const person = people.find(p => p.id === row.dataset.employeeRecord);
+      if (person) manageEmployeeRecord(person);
+    }));
+  }
+}
+
+async function manageEmployeeRecord(person) {
+  const refs = await loadReferenceData();
+  const selectedPosition = person.positionId || refs.positions.find(p => p.name === person.positionName)?.positionId || "";
+  const selectedDepartment = person.departmentId || refs.departments.find(d => d.name === person.departmentName)?.departmentId || "";
+
+  openModal({
+    title: `Employee · ${person.displayName || person.employeeId || ""}`,
+    submitLabel: "Save employee",
+    width: "760px",
+    body: `
+      <div class="record-identity"><span>${esc(person.employeeId || "")}</span><strong>${esc(person.displayName || "Employee")}</strong></div>
+      <div class="form-grid">
+        <div class="field"><label>First name</label><input class="input" name="firstName" value="${esc(person.firstName || "")}" required /></div>
+        <div class="field"><label>Last name</label><input class="input" name="lastName" value="${esc(person.lastName || "")}" required /></div>
+        <div class="field"><label>Position</label><select class="select" name="positionId"><option value="">No position</option>${refs.positions.map(p=>option(p.positionId||p.id,p.name||p.positionId,String(selectedPosition)===String(p.positionId||p.id))).join("")}</select></div>
+        <div class="field"><label>Department</label><select class="select" name="departmentId"><option value="">No department</option>${refs.departments.map(d=>option(d.departmentId||d.id,d.name||d.departmentId,String(selectedDepartment)===String(d.departmentId||d.id))).join("")}</select></div>
+        <div class="field"><label>Employment type</label><select class="select" name="employmentType">${["Full-Time","Part-Time","Contractor","Temporary","Intern","Volunteer","Seasonal","Owner"].map(v=>option(v,v,String(person.employmentType||"")===v)).join("")}</select></div>
+        <div class="field"><label>Employment status</label><select class="select" name="employmentStatus">${["active","leave","suspended","terminated","inactive"].map(v=>option(v,v[0].toUpperCase()+v.slice(1),String(person.employmentStatus||"active")===v)).join("")}</select></div>
+        <div class="field"><label>Manager</label>${employeeSelect(refs,"managerEmployeeId",person.managerEmployeeId||"",{label:"No manager"})}</div>
+        <div class="field"><label>Work phone</label><input class="input" name="workPhone" value="${esc(person.workPhone || "")}" /></div>
+      </div>
+      <div class="notice" style="margin-top:8px"><div><strong>Security separation</strong>Clearance, roles, and permissions remain managed from Security rather than the personnel form.</div></div>
+    `,
+    onSubmit: async fd => {
+      try {
+        const firstName=String(fd.get("firstName")||"").trim();
+        const lastName=String(fd.get("lastName")||"").trim();
+        const positionId=String(fd.get("positionId")||"");
+        const departmentId=String(fd.get("departmentId")||"");
+        const position=refs.positions.find(p=>String(p.positionId||p.id)===positionId);
+        const department=refs.departments.find(d=>String(d.departmentId||d.id)===departmentId);
+
+        await updateDoc(doc(db,"employees",person.id),{
+          firstName,
+          lastName,
+          displayName:`${firstName} ${lastName}`.trim(),
+          searchName:`${firstName} ${lastName}`.trim().toLowerCase(),
+          positionId:positionId||null,
+          positionName:position?.name||null,
+          departmentId:departmentId||null,
+          departmentName:department?.name||null,
+          employmentType:String(fd.get("employmentType")||"Full-Time"),
+          employmentStatus:String(fd.get("employmentStatus")||"active"),
+          managerEmployeeId:String(fd.get("managerEmployeeId")||"")||null,
+          workPhone:String(fd.get("workPhone")||"").trim(),
+          updatedAt:serverTimestamp(),
+          updatedBy:state.user.uid
+        });
+        await audit("EMPLOYEE_UPDATED","employee",person.id,{targetEmployeeId:person.employeeId||null});
+        toast("Employee updated",person.displayName||person.employeeId||"");
+        await renderPage();
+        return true;
+      } catch(error) {
+        toast("Employee update failed",firebaseMessage(error));
+        return false;
+      }
+    }
+  });
 }
 
 async function renderApprovals(target) {
