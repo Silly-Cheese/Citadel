@@ -419,9 +419,13 @@ service cloud.firestore {
         );
 
       allow create: if activeAccount()
-        && request.resource.data.requesterUid == uid();
+        && request.resource.data.requesterUid == uid()
+        && request.resource.data.status in ["Pending", "Submitted"];
 
-      allow update: if hasPermission("approval.manage");
+      allow update: if hasPermission("approval.manage")
+        && request.resource.data.requesterUid == resource.data.requesterUid
+        && request.resource.data.createdAt == resource.data.createdAt;
+
       allow delete: if false;
     }
 
@@ -430,12 +434,15 @@ service cloud.firestore {
         || hasPermission("audit.export");
 
       allow create: if (
-          signedIn()
+          isBootstrapOwner()
           && request.resource.data.actorUid == uid()
         )
         || (
-          isBootstrapOwner()
+          activeAccount()
           && request.resource.data.actorUid == uid()
+          && request.resource.data.actorEmployeeId == profile().employeeId
+          && request.resource.data.success == true
+          && request.resource.data.createdAt == request.time
         );
 
       allow update, delete: if false;
@@ -490,9 +497,12 @@ service cloud.firestore {
 
       allow update: if signedIn()
         && resource.data.recipientUid == uid()
-        && request.resource.data.recipientUid == resource.data.recipientUid;
+        && request.resource.data.recipientUid == resource.data.recipientUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read", "readAt"]);
 
-      allow create: if hasPermission("system.manage");
+      allow create: if hasPermanentPermission("system.manage")
+        && request.resource.data.recipientUid is string;
+
       allow delete: if false;
     }
 
@@ -508,9 +518,15 @@ service cloud.firestore {
         || (signedIn() && resource.data.requesterUid == uid());
 
       allow create: if hasPermission("hr.request.leave")
-        && request.resource.data.requesterUid == uid();
+        && request.resource.data.requesterUid == uid()
+        && request.resource.data.requesterEmployeeId == profile().employeeId
+        && request.resource.data.status == "Pending";
 
-      allow update: if hasPermission("hr.manage");
+      allow update: if hasPermission("hr.manage")
+        && request.resource.data.requesterUid == resource.data.requesterUid
+        && request.resource.data.requesterEmployeeId == resource.data.requesterEmployeeId
+        && request.resource.data.createdAt == resource.data.createdAt;
+
       allow delete: if false;
     }
 
@@ -542,9 +558,15 @@ service cloud.firestore {
         || (signedIn() && resource.data.requesterUid == uid());
 
       allow create: if hasPermission("service.create")
-        && request.resource.data.requesterUid == uid();
+        && request.resource.data.requesterUid == uid()
+        && request.resource.data.requesterEmployeeId == profile().employeeId
+        && request.resource.data.status == "New";
 
-      allow update: if hasPermission("service.manage");
+      allow update: if hasPermission("service.manage")
+        && request.resource.data.requesterUid == resource.data.requesterUid
+        && request.resource.data.requesterEmployeeId == resource.data.requesterEmployeeId
+        && request.resource.data.createdAt == resource.data.createdAt;
+
       allow delete: if false;
     }
 
@@ -559,9 +581,15 @@ service cloud.firestore {
         || (signedIn() && resource.data.requesterUid == uid());
 
       allow create: if hasPermission("procurement.request")
-        && request.resource.data.requesterUid == uid();
+        && request.resource.data.requesterUid == uid()
+        && request.resource.data.requesterEmployeeId == profile().employeeId
+        && request.resource.data.status == "Submitted";
 
-      allow update: if hasPermission("procurement.manage");
+      allow update: if hasPermission("procurement.manage")
+        && request.resource.data.requesterUid == resource.data.requesterUid
+        && request.resource.data.requesterEmployeeId == resource.data.requesterEmployeeId
+        && request.resource.data.createdAt == resource.data.createdAt;
+
       allow delete: if false;
     }
 
@@ -600,9 +628,15 @@ service cloud.firestore {
         || (signedIn() && resource.data.requesterUid == uid());
 
       allow create: if hasPermission("finance.expense.create")
-        && request.resource.data.requesterUid == uid();
+        && request.resource.data.requesterUid == uid()
+        && request.resource.data.requesterEmployeeId == profile().employeeId
+        && request.resource.data.status == "Submitted";
 
-      allow update: if hasPermission("finance.manage");
+      allow update: if hasPermission("finance.manage")
+        && request.resource.data.requesterUid == resource.data.requesterUid
+        && request.resource.data.requesterEmployeeId == resource.data.requesterEmployeeId
+        && request.resource.data.createdAt == resource.data.createdAt;
+
       allow delete: if false;
     }
 
@@ -764,7 +798,16 @@ service cloud.firestore {
 
     match /savedReports/{recordId} {
       allow read: if hasPermission("report.view");
-      allow create, update: if hasPermission("report.manage");
+
+      allow create: if hasPermission("report.manage")
+        && request.resource.data.ownerUid == uid()
+        && request.resource.data.ownerEmployeeId == profile().employeeId;
+
+      allow update: if hasPermission("report.manage")
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.ownerEmployeeId == resource.data.ownerEmployeeId
+        && request.resource.data.createdAt == resource.data.createdAt;
+
       allow delete: if false;
     }
 
