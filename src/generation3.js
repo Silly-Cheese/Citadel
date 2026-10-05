@@ -672,7 +672,7 @@ export function createGeneration3(ctx) {
           </section>
           <section class="card">
             <div class="card-head"><div><h2>Security alerts</h2><p>Operational security register</p></div>${hasPermission("security.alerts.manage")?'<button class="btn btn-sm" data-new-alert>New alert</button>':""}</div>
-            ${alerts.length?`<div class="list">${alerts.slice(0,25).map(a=>`<div class="list-row"><div class="grow"><strong>${esc(a.title||"Security alert")}</strong><span>${esc(a.alertId||"—")} · ${esc(a.details||"")}</span></div>${statusBadge(a.severity||"Moderate")}</div>`).join("")}</div>`:'<div class="empty"><strong>No security alerts</strong><p>Security alerts and operational concerns will appear here.</p></div>'}
+            ${alerts.length?`<div class="list">${alerts.slice(0,25).map(a=>`<div class="list-row" data-security-alert="${esc(a.id)}" style="${hasPermission("security.alerts.manage")?"cursor:pointer":""}"><div class="grow"><strong>${esc(a.title||"Security alert")}</strong><span>${esc(a.alertId||"—")} · ${esc(a.details||"")}</span></div>${statusBadge(a.severity||"Moderate")}</div>`).join("")}</div>`:'<div class="empty"><strong>No security alerts</strong><p>Security alerts and operational concerns will appear here.</p></div>'}
           </section>
         </div>
         ${canManageAccess?`
@@ -688,6 +688,12 @@ export function createGeneration3(ctx) {
 
     target.querySelector("[data-access-request]")?.addEventListener("click",accessRequestModal);
     target.querySelector("[data-new-alert]")?.addEventListener("click",securityAlertModal);
+    if(hasPermission("security.alerts.manage")){
+      target.querySelectorAll("[data-security-alert]").forEach(row=>row.addEventListener("click",()=>{
+        const alert=alerts.find(a=>a.id===row.dataset.securityAlert);
+        if(alert) manageSecurityAlert(alert);
+      }));
+    }
     target.querySelectorAll("[data-review-access]").forEach(btn=>btn.addEventListener("click",()=>{
       const request=requests.find(r=>r.id===btn.dataset.reviewAccess);
       if(request) reviewAccessRequest(request);
@@ -757,7 +763,7 @@ export function createGeneration3(ctx) {
     const requestedHours=Math.max(1,Math.min(24,Number(request.requestedHours||1)));
     openModal({
       title:`Review access · ${request.requestId||""}`,
-      submitLabel:"Approve grant",
+      submitLabel:"Save decision",
       body:`
         <div class="notice warning" style="margin-bottom:16px"><div><strong>C8+ authorization required</strong>Temporary grants are enforced by Firestore Rules and automatically stop applying after expiration.</div></div>
         <div class="security-grid" style="margin-bottom:16px">
@@ -766,11 +772,28 @@ export function createGeneration3(ctx) {
           <div class="security-box"><span>Duration</span><strong>${requestedHours}h</strong></div>
         </div>
         <div class="field"><label>Permissions</label><textarea class="textarea" name="permissions">${esc((request.requestedPermissions||[]).join("\n"))}</textarea></div>
+        <div class="field"><label>Decision</label><select class="select" name="decision"><option>Approved</option><option>Denied</option></select></div>
         <div class="field"><label>Approved clearance</label><select class="select" name="clearance">${Array.from({length:10},(_,i)=>`<option value="${i}" ${i===Math.min(9,Number(request.requestedClearance||0))?"selected":""}>C${i}</option>`).join("")}</select></div>
-        <div class="field"><label>Approval note</label><textarea class="textarea" name="approvalNote"></textarea></div>
+        <div class="field span-2"><label>Decision note</label><textarea class="textarea" name="approvalNote"></textarea></div>
       `,
       onSubmit:async fd=>{
         try{
+          const decision=String(fd.get("decision")||"Approved");
+          if(decision==="Denied"){
+            await updateDoc(doc(db,"accessRequests",request.id),{
+              status:"Denied",
+              approvalNote:String(fd.get("approvalNote")||"").trim(),
+              decidedByUid:state.user.uid,
+              decidedByEmployeeId:state.employee?.employeeId||null,
+              decidedAt:serverTimestamp(),
+              updatedAt:serverTimestamp()
+            });
+            await audit("TEMP_ACCESS_DENIED","accessRequest",request.id,{requestId:request.requestId||null,targetEmployeeId:request.requesterEmployeeId||null});
+            toast("Access request denied",request.requestId||"");
+            await renderPage();
+            return true;
+          }
+
           const permissions=[...new Set(String(fd.get("permissions")||"").split(/\r?\n/).map(v=>v.trim()).filter(Boolean))];
           const protectedRequested=permissions.filter(p=>PROTECTED_TEMP_PERMISSIONS.has(p));
           if(protectedRequested.length){
@@ -835,6 +858,38 @@ export function createGeneration3(ctx) {
           await renderPage();
           return true;
         }catch(error){toast("Revocation failed",firebaseMessage(error));return false;}
+      }
+    });
+  }
+
+  function manageSecurityAlert(alert) {
+    openModal({
+      title:`${alert.alertId||"Security alert"} · ${alert.title||""}`,
+      submitLabel:"Save alert",
+      body:`
+        <div class="form-grid">
+          <div class="field"><label>Severity</label><select class="select" name="severity">${["Low","Moderate","High","Critical"].map(v=>`<option ${alert.severity===v?"selected":""}>${v}</option>`).join("")}</select></div>
+          <div class="field"><label>Status</label><select class="select" name="status">${["Open","Investigating","Monitoring","Resolved","Closed"].map(v=>`<option ${alert.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
+          <div class="field span-2"><label>Details</label><textarea class="textarea" name="details">${esc(alert.details||"")}</textarea></div>
+          <div class="field span-2"><label>Resolution / response</label><textarea class="textarea" name="resolution">${esc(alert.resolution||"")}</textarea></div>
+        </div>
+      `,
+      onSubmit:async fd=>{
+        try{
+          await updateDoc(doc(db,"securityAlerts",alert.id),{
+            severity:String(fd.get("severity")||"Moderate"),
+            status:String(fd.get("status")||"Open"),
+            details:String(fd.get("details")||"").trim(),
+            resolution:String(fd.get("resolution")||"").trim(),
+            updatedByUid:state.user.uid,
+            updatedByEmployeeId:state.employee?.employeeId||null,
+            updatedAt:serverTimestamp()
+          });
+          await audit("SECURITY_ALERT_UPDATED","securityAlert",alert.id,{alertId:alert.alertId||null});
+          toast("Security alert updated",alert.alertId||"");
+          await renderPage();
+          return true;
+        }catch(error){toast("Alert update failed",firebaseMessage(error));return false;}
       }
     });
   }
