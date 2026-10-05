@@ -1,0 +1,275 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function bootstrapExists() {
+      return exists(/databases/$(database)/documents/system/bootstrap);
+    }
+
+    function bootstrap() {
+      return get(/databases/$(database)/documents/system/bootstrap).data;
+    }
+
+    function isBootstrapOwner() {
+      return signedIn()
+        && bootstrapExists()
+        && bootstrap().initialized == false
+        && request.auth.token.email != null
+        && request.auth.token.email == bootstrap().ownerEmail;
+    }
+
+    function profileExists() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/accessProfiles/$(uid()));
+    }
+
+    function profile() {
+      return get(/databases/$(database)/documents/accessProfiles/$(uid())).data;
+    }
+
+    function activeAccount() {
+      return profileExists()
+        && profile().active == true;
+    }
+
+    function isSystemOwner() {
+      return activeAccount()
+        && profile().isSystemOwner == true;
+    }
+
+    function hasPermission(permission) {
+      return activeAccount()
+        && (
+          profile().isSystemOwner == true
+          || profile().permissions.hasAny([permission])
+        );
+    }
+
+    function clearanceAtLeast(level) {
+      return activeAccount()
+        && profile().clearanceLevel >= level;
+    }
+
+    function classificationAllowed(classification) {
+      return classification == "STANDARD"
+        || (classification == "INTERNAL" && clearanceAtLeast(1))
+        || (classification == "CONFIDENTIAL" && clearanceAtLeast(2))
+        || (classification == "SENSITIVE" && clearanceAtLeast(4))
+        || (classification == "RESTRICTED" && clearanceAtLeast(6))
+        || (classification == "HIGHLY_RESTRICTED" && clearanceAtLeast(8));
+    }
+
+    match /system/bootstrap {
+      allow read: if signedIn();
+
+      allow update: if isBootstrapOwner()
+        && resource.data.initialized == false
+        && request.resource.data.initialized == true
+        && request.resource.data.ownerEmail == resource.data.ownerEmail;
+
+      allow create, delete: if false;
+    }
+
+    match /system/ownership {
+      allow read: if isSystemOwner() || isBootstrapOwner();
+
+      allow create: if isBootstrapOwner()
+        && request.resource.data.primaryOwnerUid == uid();
+
+      allow update: if isSystemOwner()
+        && request.resource.data.primaryOwnerUid == resource.data.primaryOwnerUid;
+
+      allow delete: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn()
+        && (userId == uid() || hasPermission("employee.manage"));
+
+      allow create: if (
+          isBootstrapOwner()
+          && userId == uid()
+          && request.resource.data.protectedPrincipal == true
+          && request.resource.data.ownerStatus == "primary"
+        )
+        || hasPermission("employee.manage");
+
+      allow update: if hasPermission("employee.manage")
+        && (
+          resource.data.protectedPrincipal != true
+          || (
+            userId == uid()
+            && request.resource.data.protectedPrincipal == true
+            && request.resource.data.ownerStatus == "primary"
+            && request.resource.data.accountStatus == "active"
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /accessProfiles/{userId} {
+      allow read: if signedIn()
+        && (userId == uid() || hasPermission("access.manage"));
+
+      allow create: if (
+          isBootstrapOwner()
+          && userId == uid()
+          && request.resource.data.isSystemOwner == true
+          && request.resource.data.protectedPrincipal == true
+          && request.resource.data.clearanceLevel == 10
+        )
+        || hasPermission("access.manage");
+
+      allow update: if hasPermission("access.manage")
+        && (
+          resource.data.protectedPrincipal != true
+          || (
+            userId == uid()
+            && request.resource.data.isSystemOwner == true
+            && request.resource.data.protectedPrincipal == true
+            && request.resource.data.clearanceLevel == 10
+            && request.resource.data.active == true
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /employees/{employeeRecordId} {
+      allow read: if signedIn()
+        && (
+          employeeRecordId == uid()
+          || hasPermission("employee.view")
+          || hasPermission("employee.manage")
+        );
+
+      allow create: if (
+          isBootstrapOwner()
+          && employeeRecordId == uid()
+          && request.resource.data.employeeId == "EMP-000001"
+          && request.resource.data.clearanceLevel == 10
+        )
+        || hasPermission("employee.manage");
+
+      allow update: if hasPermission("employee.manage")
+        && (
+          resource.data.accountClass != "protected_principal"
+          || (
+            employeeRecordId == uid()
+            && request.resource.data.accountClass == "protected_principal"
+            && request.resource.data.clearanceLevel == 10
+            && request.resource.data.employmentStatus == "active"
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /registrationRequests/{userId} {
+      allow read: if signedIn()
+        && (userId == uid() || hasPermission("system.manage"));
+
+      allow create: if signedIn()
+        && userId == uid()
+        && request.resource.data.uid == uid()
+        && request.resource.data.status == "pending";
+
+      allow update: if hasPermission("system.manage");
+      allow delete: if false;
+    }
+
+    match /customers/{customerRecordId} {
+      allow read: if hasPermission("customer.view")
+        && classificationAllowed(resource.data.classification);
+
+      allow create: if hasPermission("customer.create")
+        && classificationAllowed(request.resource.data.classification);
+
+      allow update: if hasPermission("customer.edit")
+        && classificationAllowed(resource.data.classification)
+        && classificationAllowed(request.resource.data.classification);
+
+      allow delete: if false;
+    }
+
+    match /customerNotes/{noteId} {
+      allow read: if hasPermission("customer.view");
+      allow create: if hasPermission("customer.edit")
+        && request.resource.data.createdBy == uid();
+      allow update, delete: if false;
+    }
+
+    match /cases/{caseRecordId} {
+      allow read: if hasPermission("case.view");
+
+      allow create: if hasPermission("case.create")
+        && request.resource.data.createdBy == uid();
+
+      allow update: if hasPermission("case.assign")
+        || (
+          hasPermission("case.create")
+          && resource.data.assignedUid == uid()
+        );
+
+      allow delete: if false;
+    }
+
+    match /approvals/{approvalRecordId} {
+      allow read: if hasPermission("approval.view")
+        || (
+          signedIn()
+          && resource.data.requesterUid == uid()
+        );
+
+      allow create: if activeAccount()
+        && request.resource.data.requesterUid == uid();
+
+      allow update: if hasPermission("approval.manage");
+      allow delete: if false;
+    }
+
+    match /auditEvents/{eventId} {
+      allow read: if hasPermission("audit.view");
+
+      allow create: if (
+          signedIn()
+          && request.resource.data.actorUid == uid()
+        )
+        || (
+          isBootstrapOwner()
+          && request.resource.data.actorUid == uid()
+        );
+
+      allow update, delete: if false;
+    }
+
+    match /counters/{counterId} {
+      allow read, write: if hasPermission("system.manage");
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn()
+        && resource.data.recipientUid == uid();
+
+      allow update: if signedIn()
+        && resource.data.recipientUid == uid()
+        && request.resource.data.recipientUid == resource.data.recipientUid;
+
+      allow create: if hasPermission("system.manage");
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
