@@ -95,6 +95,16 @@ const ROLE_OPTIONS = [
 
 const ALL_PERMISSION_OPTIONS = [...new Set(OWNER_PERMISSIONS)].sort();
 
+const PRIVILEGED_ACCESS_PERMISSIONS = new Set([
+  "system.manage",
+  "access.manage",
+  "access.temporary.manage",
+  "security.manage",
+  "employee.manage",
+  "organization.manage",
+  "admin.organization.manage"
+]);
+
 const PERMISSION_GROUP_LABELS = [
   ["customer.", "Customers"],
   ["case.", "Cases"],
@@ -298,10 +308,10 @@ function permissionFriendlyName(permission) {
   return replacements[action] || action.split(" ").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 }
 
-function permissionPicker(selectedPermissions = []) {
+function permissionPicker(selectedPermissions = [], { allowPrivileged = true } = {}) {
   const selected = new Set(selectedPermissions);
   return PERMISSION_GROUP_LABELS.map(([prefix, label], index) => {
-    const perms = ALL_PERMISSION_OPTIONS.filter(p => p.startsWith(prefix));
+    const perms = ALL_PERMISSION_OPTIONS.filter(p => p.startsWith(prefix) && (allowPrivileged || !PRIVILEGED_ACCESS_PERMISSIONS.has(p)));
     if (!perms.length) return "";
     const selectedCount = perms.filter(p => selected.has(p)).length;
     const expanded = index < 2 || selectedCount > 0;
@@ -337,9 +347,10 @@ function roleLabel(value) {
     || String(value || "").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function rolePicker(selectedRoles = []) {
+function rolePicker(selectedRoles = [], { allowSystemOwner = true } = {}) {
   const selected = new Set(selectedRoles);
-  return `<div class="role-grid">${ROLE_OPTIONS.map(([value,label]) => `
+  const roles = ROLE_OPTIONS.filter(([value]) => allowSystemOwner || value !== "SYSTEM_OWNER");
+  return `<div class="role-grid">${roles.map(([value,label]) => `
     <label class="role-card">
       <input type="checkbox" name="roles" value="${esc(value)}" ${selected.has(value) ? "checked" : ""}/>
       <span class="role-card-check">✓</span>
@@ -684,6 +695,7 @@ function renderShell() {
           <div class="global-search">
             <span class="search-icon">⌕</span>
             <input class="input" id="global-search" placeholder="Search people, customers, cases, assets…" value="${esc(state.search)}" />
+            <kbd class="search-shortcut">Ctrl K</kbd>
           </div>
           <div class="top-actions">
             <button class="icon-btn hide-mobile" title="Approvals" data-route="approvals">✓</button>
@@ -705,6 +717,19 @@ function renderShell() {
     navigate("search");
   });
 
+  document.onkeydown = (event) => {
+    const target = event.target;
+    const typing = target && ["INPUT","TEXTAREA","SELECT"].includes(target.tagName);
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      app.querySelector("#global-search")?.focus();
+      app.querySelector("#global-search")?.select();
+    } else if (event.key === "/" && !typing) {
+      event.preventDefault();
+      app.querySelector("#global-search")?.focus();
+    }
+  };
+
   renderPage();
 }
 
@@ -716,7 +741,7 @@ function navigate(route) {
 
 async function renderPage() {
   const target = document.getElementById("page-content");
-  target.innerHTML = `<div class="page"><div class="empty"><strong>Loading ${esc(state.route)}…</strong><p>Retrieving authorized Citadel data.</p></div></div>`;
+  target.innerHTML = `<div class="page"><div class="page-skeleton"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-subtitle"></div><div class="skeleton-grid">${Array.from({length:4},()=>'<div class="skeleton skeleton-card"></div>').join("")}</div><div class="skeleton skeleton-panel"></div></div></div>`;
   try {
     const renderers = {
       home: renderHome,
@@ -748,8 +773,9 @@ async function safeCollection(name, count = 50, field = "createdAt") {
 }
 
 function pageHeader(title, subtitle, actions = "") {
+  const section = NAV.find(item => item.id === state.route)?.section || (state.route === "notifications" ? "Workspace" : "Citadel");
   return `<div class="page-head">
-    <div><div class="eyebrow">Citadel</div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div>
+    <div><div class="eyebrow">${esc(section)} · Citadel</div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div>
     <div class="page-actions">${actions}</div>
   </div>`;
 }
@@ -1497,23 +1523,34 @@ async function renderSecurity(target) {
 
   target.querySelectorAll("[data-access-profile]").forEach((row) => row.addEventListener("click", () => {
     const profile = accessProfiles.find((p) => p.id === row.dataset.accessProfile);
-    if (profile) manageAccessProfile(profile);
+    if (profile) manageAccessProfile(profile, employeeForProfile(profile));
   }));
   target.querySelector("[data-export-audit]")?.addEventListener("click", () => generation3.exportAudit());
 }
 
-function manageAccessProfile(profile) {
-  const isProtectedOther = profile.protectedPrincipal === true && profile.id !== state.user.uid;
+function manageAccessProfile(profile, employee = null) {
+  const canGrantPrivileged = state.profile?.isSystemOwner === true
+    && state.profile?.protectedPrincipal === true
+    && Number(state.profile?.clearanceLevel || 0) === 10;
+  const targetPrivileged = profile.protectedPrincipal === true
+    || profile.isSystemOwner === true
+    || Number(profile.clearanceLevel || 0) === 10
+    || (profile.roles || []).includes("SYSTEM_OWNER")
+    || (profile.permissions || []).some(permission => PRIVILEGED_ACCESS_PERMISSIONS.has(permission));
+  const readOnly = (profile.protectedPrincipal === true && profile.id !== state.user.uid)
+    || (!canGrantPrivileged && targetPrivileged);
+  const clearanceOptions = Array.from({length:canGrantPrivileged ? 11 : 10},(_,i)=>i);
   openModal({
-    title: `Access profile · ${profile.employeeId || profile.id}`,
-    submitLabel: isProtectedOther ? "Close" : "Save access",
+    title: employee?.displayName ? `Access · ${employee.displayName}` : `Access · ${profile.employeeId || "Citadel user"}`,
+    submitLabel: readOnly ? "Close" : "Save access",
     width: "980px",
     body: `
       ${profile.protectedPrincipal ? '<div class="notice warning" style="margin-bottom:16px"><div><strong>Protected Principal</strong>Citadel protects this account from ordinary administrative lockout or ownership removal.</div></div>' : ""}
+      ${!canGrantPrivileged && targetPrivileged && !profile.protectedPrincipal ? '<div class="notice warning" style="margin-bottom:16px"><div><strong>Owner-level access</strong>This profile contains privileged authority. Only the System Owner can modify it.</div></div>' : ""}
       <div class="access-editor">
         <div class="access-editor-summary">
-          <div class="access-editor-avatar">${esc((profile.employeeId || "U").slice(-2))}</div>
-          <div class="grow"><strong>${esc(profile.employeeId || "Citadel user")}</strong><span>${esc((profile.roles || []).map(roleLabel).join(", ") || "No role assigned")} · C${Number(profile.clearanceLevel || 0)}</span></div>
+          <div class="access-editor-avatar">${esc(initials(employee?.displayName || profile.employeeId || "U"))}</div>
+          <div class="grow"><strong>${esc(employee?.displayName || profile.employeeId || "Citadel user")}</strong><span>${esc(employee?.positionName || "No position")} · ${esc(employee?.departmentName || "No department")} · C${Number(profile.clearanceLevel || 0)}</span></div>
           ${profile.protectedPrincipal ? '<span class="badge warning">Protected</span>' : statusBadge(profile.active === false ? "Suspended" : "Active")}
         </div>
 
@@ -1526,7 +1563,7 @@ function manageAccessProfile(profile) {
         <section class="editor-pane active" data-editor-pane="account">
           <div class="editor-pane-head"><div><h3>Account controls</h3><p>Authorization state and clearance for this Citadel identity.</p></div></div>
           <div class="form-grid">
-            <div class="field"><label>Clearance level</label><select class="select" name="clearanceLevel">${Array.from({length:11},(_,i)=>`<option value="${i}" ${Number(profile.clearanceLevel||0)===i?"selected":""}>C${i}</option>`).join("")}</select><div class="field-help">Clearance controls classified-record eligibility; it does not automatically grant module permissions.</div></div>
+            <div class="field"><label>Clearance level</label><select class="select" name="clearanceLevel">${clearanceOptions.map(i=>`<option value="${i}" ${Number(profile.clearanceLevel||0)===i?"selected":""}>C${i}</option>`).join("")}</select><div class="field-help">Clearance controls classified-record eligibility; it does not automatically grant module permissions.</div></div>
             <div class="field"><label>Account authorization</label><select class="select" name="active"><option value="true" ${profile.active!==false?"selected":""}>Active</option><option value="false" ${profile.active===false?"selected":""}>Suspended</option></select><div class="field-help">Suspended accounts cannot use Citadel even if permissions remain assigned.</div></div>
           </div>
           <div class="access-explainer">
@@ -1538,7 +1575,7 @@ function manageAccessProfile(profile) {
 
         <section class="editor-pane" data-editor-pane="roles" hidden>
           <div class="editor-pane-head"><div><h3>Roles</h3><p>Use roles to describe the employee's job function. Permissions are still controlled separately.</p></div></div>
-          ${rolePicker(profile.roles || [])}
+          ${rolePicker(profile.roles || [], { allowSystemOwner: canGrantPrivileged })}
         </section>
 
         <section class="editor-pane permission-field" data-editor-pane="permissions" hidden>
@@ -1551,12 +1588,12 @@ function manageAccessProfile(profile) {
             <button class="btn btn-sm" type="button" data-expand-permissions>Expand all</button>
             <button class="btn btn-sm btn-ghost" type="button" data-collapse-permissions>Collapse all</button>
           </div>
-          <div class="permission-picker" data-permission-picker>${permissionPicker(profile.permissions || [])}</div>
+          <div class="permission-picker" data-permission-picker>${permissionPicker(profile.permissions || [], { allowPrivileged: canGrantPrivileged })}</div>
         </section>
       </div>
     `,
     onSubmit: async (fd) => {
-      if (isProtectedOther) return true;
+      if (readOnly) return true;
       try {
         const clearanceLevel = Number(fd.get("clearanceLevel") || 0);
         const active = String(fd.get("active")) === "true";
@@ -1682,9 +1719,9 @@ function manageAccessProfile(profile) {
     });
   }));
 
-  if (isProtectedOther) {
+  if (readOnly) {
     const form = document.querySelector("#modal-root form");
-    form?.querySelectorAll("input,select,textarea").forEach((el) => el.disabled = true);
+    form?.querySelectorAll("input,select,textarea,button[data-select-group],button[data-clear-group]").forEach((el) => el.disabled = true);
   }
 }
 
