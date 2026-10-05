@@ -166,12 +166,28 @@ service cloud.firestore {
 
     function classifiedRecordAllowed(data) {
       return activeAccount()
-        && data.minimumClearance is int
+        && data.classification is string
         && (
-          data.minimumClearance <= profile().clearanceLevel
+          data.classification == "STANDARD"
           || (
-            temporaryAccessActive()
-            && data.minimumClearance <= temporaryAccess().clearanceLevel
+            data.classification == "INTERNAL"
+            && clearanceAtLeast(1)
+          )
+          || (
+            data.classification == "CONFIDENTIAL"
+            && clearanceAtLeast(2)
+          )
+          || (
+            data.classification == "SENSITIVE"
+            && clearanceAtLeast(4)
+          )
+          || (
+            data.classification == "RESTRICTED"
+            && clearanceAtLeast(6)
+          )
+          || (
+            data.classification == "HIGHLY_RESTRICTED"
+            && clearanceAtLeast(8)
           )
         );
     }
