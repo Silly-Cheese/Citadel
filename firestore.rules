@@ -253,7 +253,7 @@ service cloud.firestore {
     }
 
     match /counters/{counterId} {
-      allow read, write: if hasPermission("system.manage");
+      allow read, write: if hasPermission("system.manage") || isBootstrapOwner();
     }
 
     match /notifications/{notificationId} {
