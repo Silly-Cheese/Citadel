@@ -247,7 +247,12 @@ async function loadReferenceData() {
       ? safeCollection("vendors", 250).then(v => refs.vendors = v)
       : Promise.resolve(),
     hasPermission("customer.view")
-      ? customerQuery().then(s => refs.customers = s.docs.map(d => ({ id:d.id, ...d.data() })))
+      ? (async () => {
+          const snap = state.profile?.isSystemOwner === true
+            ? await getDocs(query(collection(db,"customers"),orderBy("createdAt","desc"),limit(250)))
+            : await getDocs(query(collection(db,"customers"),where("minimumClearance","<=",effectiveClearance()),limit(250)));
+          refs.customers = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+        })()
       : Promise.resolve()
   ];
 
