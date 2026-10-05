@@ -73,6 +73,61 @@ const OWNER_PERMISSIONS = [
   ...GENERATION3_PERMISSIONS
 ];
 
+const ROLE_OPTIONS = [
+  ["GENERAL_EMPLOYEE", "General Employee"],
+  ["CUSTOMER_REP", "Customer Representative"],
+  ["CUSTOMER_SUPERVISOR", "Customer Supervisor"],
+  ["DEPARTMENT_MANAGER", "Department Manager"],
+  ["HR_SPECIALIST", "HR Specialist"],
+  ["HR_MANAGER", "HR Manager"],
+  ["SERVICE_DESK", "Service Desk"],
+  ["IT_ADMIN", "IT Administrator"],
+  ["FINANCE_SPECIALIST", "Finance Specialist"],
+  ["PROCUREMENT_SPECIALIST", "Procurement Specialist"],
+  ["SECURITY_ANALYST", "Security Analyst"],
+  ["SECURITY_ADMIN", "Security Administrator"],
+  ["COMPLIANCE_OFFICER", "Compliance Officer"],
+  ["RISK_MANAGER", "Risk Manager"],
+  ["EXECUTIVE", "Executive"],
+  ["SYSTEM_ADMIN", "System Administrator"],
+  ["SYSTEM_OWNER", "System Owner"]
+];
+
+const ALL_PERMISSION_OPTIONS = [...new Set(OWNER_PERMISSIONS)].sort();
+
+const PERMISSION_GROUP_LABELS = [
+  ["customer.", "Customers"],
+  ["case.", "Cases"],
+  ["employee.", "People"],
+  ["hr.", "HR"],
+  ["training.", "Training"],
+  ["service.", "Service Desk"],
+  ["asset.", "Assets"],
+  ["procurement.", "Procurement"],
+  ["vendor.", "Vendors"],
+  ["contract.", "Contracts"],
+  ["finance.", "Finance"],
+  ["project.", "Projects"],
+  ["document.", "Documents"],
+  ["communications.", "Communications"],
+  ["compliance.", "Compliance"],
+  ["risk.", "Risk"],
+  ["investigation.", "Investigations"],
+  ["workflow.", "Workflows"],
+  ["approval.", "Approvals"],
+  ["analytics.", "Analytics"],
+  ["report.", "Reports"],
+  ["security.", "Security"],
+  ["access.", "Access"],
+  ["audit.", "Audit"],
+  ["organization.", "Organization"],
+  ["dashboard.", "Dashboard"],
+  ["bulk.", "Bulk Operations"],
+  ["notification.", "Notifications"],
+  ["system.", "System"],
+  ["admin.", "Administration"]
+];
+
 const NAV = [
   { section: "Workspace", id: "home", label: "Home", icon: "⌂" },
   { section: "Workspace", id: "customers", label: "Customers", icon: "◉", permission: "customer.view" },
@@ -165,6 +220,73 @@ async function nextId(counterName, prefix) {
     return next;
   });
   return `${prefix}-${String(number).padStart(6, "0")}`;
+}
+
+function option(value, label, selected = false) {
+  return `<option value="${esc(value)}" ${selected ? "selected" : ""}>${esc(label)}</option>`;
+}
+
+async function loadReferenceData() {
+  const refs = {
+    employees: [],
+    departments: [],
+    positions: [],
+    locations: [],
+    vendors: [],
+    customers: []
+  };
+
+  const tasks = [
+    hasPermission("employee.view") || hasPermission("employee.manage")
+      ? safeCollection("employees", 300).then(v => refs.employees = v)
+      : Promise.resolve(),
+    safeCollection("departments", 200).then(v => refs.departments = v),
+    safeCollection("positions", 250).then(v => refs.positions = v),
+    safeCollection("locations", 200).then(v => refs.locations = v),
+    hasPermission("vendor.view") || hasPermission("vendor.manage") || hasPermission("procurement.view")
+      ? safeCollection("vendors", 250).then(v => refs.vendors = v)
+      : Promise.resolve(),
+    hasPermission("customer.view")
+      ? customerQuery().then(s => refs.customers = s.docs.map(d => ({ id:d.id, ...d.data() })))
+      : Promise.resolve()
+  ];
+
+  await Promise.all(tasks);
+  return refs;
+}
+
+function employeeSelect(refs, name, selected = "", { required = false, label = "Select employee" } = {}) {
+  return `<select class="select" name="${esc(name)}" ${required ? "required" : ""}>
+    <option value="">${esc(label)}</option>
+    ${refs.employees.map(e => option(e.employeeId || e.id, `${e.displayName || "Employee"} — ${e.positionName || "No position"}`, String(selected) === String(e.employeeId || e.id))).join("")}
+  </select>`;
+}
+
+function permissionPicker(selectedPermissions = []) {
+  const selected = new Set(selectedPermissions);
+  return PERMISSION_GROUP_LABELS.map(([prefix, label]) => {
+    const perms = ALL_PERMISSION_OPTIONS.filter(p => p.startsWith(prefix));
+    if (!perms.length) return "";
+    return `<section class="permission-group" data-permission-group>
+      <div class="permission-group-head"><strong>${esc(label)}</strong><span>${perms.length} permissions</span></div>
+      <div class="permission-grid">${perms.map(p => `
+        <label class="permission-option" data-permission-option="${esc(p.toLowerCase())}">
+          <input type="checkbox" name="permissions" value="${esc(p)}" ${selected.has(p) ? "checked" : ""}/>
+          <span><strong>${esc(p)}</strong></span>
+        </label>
+      `).join("")}</div>
+    </section>`;
+  }).join("");
+}
+
+function rolePicker(selectedRoles = []) {
+  const selected = new Set(selectedRoles);
+  return `<div class="permission-grid">${ROLE_OPTIONS.map(([value,label]) => `
+    <label class="permission-option">
+      <input type="checkbox" name="roles" value="${esc(value)}" ${selected.has(value) ? "checked" : ""}/>
+      <span><strong>${esc(label)}</strong><small>${esc(value)}</small></span>
+    </label>
+  `).join("")}</div>`;
 }
 
 function renderAuth(mode = "signin") {
@@ -1025,14 +1147,15 @@ async function renderCases(target) {
   target.querySelector("[data-new-case]")?.addEventListener("click", newCaseModal);
 }
 
-function newCaseModal() {
+async function newCaseModal() {
+  const refs = await loadReferenceData();
   openModal({
     title: "Create case",
     submitLabel: "Create case",
     body: `
       <div class="form-grid">
         <div class="field span-2"><label>Case title</label><input class="input" name="title" required /></div>
-        <div class="field"><label>Customer ID</label><input class="input" name="customerId" placeholder="CUS-000001" /></div>
+        <div class="field"><label>Customer</label><select class="select" name="customerId"><option value="">No customer / internal case</option>${refs.customers.map(customer => option(customer.customerId || customer.id, `${customerDisplayName(customer)} — ${customer.customerId || ""}`)).join("")}</select></div>
         <div class="field"><label>Category</label><input class="input" name="category" placeholder="Billing, Service, General…" /></div>
         <div class="field"><label>Priority</label><select class="select" name="priority"><option>Normal</option><option>High</option><option>Critical</option><option>Low</option></select></div>
         <div class="field"><label>Status</label><select class="select" name="status"><option>New</option><option>Open</option><option>In Progress</option><option>Pending Customer</option><option>Pending Internal</option><option>Escalated</option></select></div>
@@ -1178,9 +1301,6 @@ async function renderSecurity(target) {
 
 function manageAccessProfile(profile) {
   const isProtectedOther = profile.protectedPrincipal === true && profile.id !== state.user.uid;
-  const permissionsText = (profile.permissions || []).join("\n");
-  const rolesText = (profile.roles || []).join(", ");
-
   openModal({
     title: `Access profile · ${profile.employeeId || profile.id}`,
     submitLabel: isProtectedOther ? "Close" : "Save access",
@@ -1190,8 +1310,12 @@ function manageAccessProfile(profile) {
       <div class="form-grid">
         <div class="field"><label>Clearance level</label><select class="select" name="clearanceLevel">${Array.from({length:11},(_,i)=>`<option value="${i}" ${Number(profile.clearanceLevel||0)===i?"selected":""}>C${i}</option>`).join("")}</select></div>
         <div class="field"><label>Account authorization</label><select class="select" name="active"><option value="true" ${profile.active!==false?"selected":""}>Active</option><option value="false" ${profile.active===false?"selected":""}>Suspended</option></select></div>
-        <div class="field span-2"><label>Roles</label><input class="input" name="roles" value="${esc(rolesText)}" placeholder="CUSTOMER_REP, MANAGER" /><div class="field-help">Comma-separated role identifiers.</div></div>
-        <div class="field span-2"><label>Explicit permissions</label><textarea class="textarea" name="permissions" style="min-height:240px">${esc(permissionsText)}</textarea><div class="field-help">One permission per line. Clearance alone never grants a permission.</div></div>
+        <div class="field span-2"><label>Roles</label>${rolePicker(profile.roles || [])}<div class="field-help">Choose one or more roles. No role codes need to be typed.</div></div>
+        <div class="field span-2"><label>Explicit permissions</label>
+          <input class="input" type="search" data-permission-search placeholder="Search permissions…" style="margin-bottom:10px" />
+          <div class="permission-picker" data-permission-picker>${permissionPicker(profile.permissions || [])}</div>
+          <div class="field-help">Select permissions by category. Clearance alone never grants a permission.</div>
+        </div>
       </div>
     `,
     onSubmit: async (fd) => {
@@ -1199,8 +1323,8 @@ function manageAccessProfile(profile) {
       try {
         const clearanceLevel = Number(fd.get("clearanceLevel") || 0);
         const active = String(fd.get("active")) === "true";
-        const roles = String(fd.get("roles") || "").split(",").map(v => v.trim()).filter(Boolean);
-        const permissions = [...new Set(String(fd.get("permissions") || "").split(/\r?\n/).map(v => v.trim()).filter(Boolean))];
+        const roles = [...new Set(fd.getAll("roles").map(String).filter(Boolean))];
+        const permissions = [...new Set(fd.getAll("permissions").map(String).filter(Boolean))];
 
         if (profile.protectedPrincipal && profile.id === state.user.uid) {
           if (!active || clearanceLevel !== 10 || profile.isSystemOwner !== true) {
@@ -1248,6 +1372,18 @@ function manageAccessProfile(profile) {
     }
   });
 
+  const permissionSearch = document.querySelector("[data-permission-search]");
+  permissionSearch?.addEventListener("input", () => {
+    const term = permissionSearch.value.trim().toLowerCase();
+    document.querySelectorAll("[data-permission-option]").forEach((el) => {
+      el.style.display = !term || el.dataset.permissionOption.includes(term) ? "" : "none";
+    });
+    document.querySelectorAll("[data-permission-group]").forEach((group) => {
+      const visible = [...group.querySelectorAll("[data-permission-option]")].some(el => el.style.display !== "none");
+      group.style.display = visible ? "" : "none";
+    });
+  });
+
   if (isProtectedOther) {
     const form = document.querySelector("#modal-root form");
     form?.querySelectorAll("input,select,textarea").forEach((el) => el.disabled = true);
@@ -1290,7 +1426,8 @@ async function renderAdmin(target) {
   }));
 }
 
-function approveAccountModal(request) {
+async function approveAccountModal(request) {
+  const refs = await loadReferenceData();
   openModal({
     title: "Provision Citadel account",
     submitLabel: "Approve account",
@@ -1299,8 +1436,9 @@ function approveAccountModal(request) {
       <div class="form-grid">
         <div class="field"><label>First name</label><input class="input" name="firstName" required /></div>
         <div class="field"><label>Last name</label><input class="input" name="lastName" required /></div>
-        <div class="field"><label>Position</label><input class="input" name="positionName" value="General Employee" required /></div>
-        <div class="field"><label>Department</label><input class="input" name="departmentName" value="Operations" required /></div>
+        <div class="field"><label>Position</label><select class="select" name="positionId" required><option value="">Select position</option>${refs.positions.map(p=>option(p.positionId||p.id,p.name||p.positionId)).join("")}</select></div>
+        <div class="field"><label>Department</label><select class="select" name="departmentId" required><option value="">Select department</option>${refs.departments.map(d=>option(d.departmentId||d.id,d.name||d.departmentId)).join("")}</select></div>
+        <div class="field"><label>Employment type</label><select class="select" name="employmentType"><option>Full-Time</option><option>Part-Time</option><option>Contractor</option><option>Temporary</option><option>Intern</option><option>Volunteer</option><option>Seasonal</option></select></div>
         <div class="field"><label>Clearance</label><select class="select" name="clearanceLevel">${Array.from({length:10},(_,i)=>`<option value="${i+1}" ${i===0?"selected":""}>C${i+1}</option>`).join("")}</select></div>
       </div>
     `,
@@ -1311,6 +1449,11 @@ function approveAccountModal(request) {
         const lastName = String(fd.get("lastName") || "").trim();
         const displayName = `${firstName} ${lastName}`.trim();
         const clearance = Number(fd.get("clearanceLevel") || 1);
+        const positionId = String(fd.get("positionId") || "");
+        const departmentId = String(fd.get("departmentId") || "");
+        const position = refs.positions.find(p => String(p.positionId || p.id) === positionId);
+        const department = refs.departments.find(d => String(d.departmentId || d.id) === departmentId);
+        const employmentType = String(fd.get("employmentType") || "Full-Time");
         const batch = writeBatch(db);
         batch.set(doc(db, "employees", request.uid), {
           employeeId,
@@ -1320,10 +1463,12 @@ function approveAccountModal(request) {
           displayName,
           searchName: displayName.toLowerCase(),
           workEmail: request.email || "",
-          positionName: String(fd.get("positionName") || "General Employee").trim(),
-          departmentName: String(fd.get("departmentName") || "Operations").trim(),
+          positionId,
+          positionName: position?.name || "General Employee",
+          departmentId,
+          departmentName: department?.name || "Operations",
           employmentStatus: "active",
-          employmentType: "employee",
+          employmentType,
           clearanceLevel: clearance,
           accountClass: "standard",
           classification: "CONFIDENTIAL",
