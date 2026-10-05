@@ -167,7 +167,13 @@ service cloud.firestore {
     function classifiedRecordAllowed(data) {
       return activeAccount()
         && data.minimumClearance is int
-        && clearanceAtLeast(data.minimumClearance);
+        && (
+          data.minimumClearance <= profile().clearanceLevel
+          || (
+            temporaryAccessActive()
+            && data.minimumClearance <= temporaryAccess().clearanceLevel
+          )
+        );
     }
 
     function validClassification(data) {
@@ -355,11 +361,8 @@ service cloud.firestore {
     }
 
     match /customers/{customerRecordId} {
-      allow read: if isSystemOwner()
-        || (
-          hasPermission("customer.view")
-          && classifiedRecordAllowed(resource.data)
-        );
+      allow read: if hasPermission("customer.view")
+        && classifiedRecordAllowed(resource.data);
 
       allow create: if hasPermission("customer.create")
         && validClassification(request.resource.data)
@@ -649,11 +652,8 @@ service cloud.firestore {
     }
 
     match /contracts/{recordId} {
-      allow read: if isSystemOwner()
-        || (
-          hasPermission("contract.view")
-          && classifiedRecordAllowed(resource.data)
-        );
+      allow read: if hasPermission("contract.view")
+        && classifiedRecordAllowed(resource.data);
 
       allow create: if hasPermission("contract.manage")
         && request.resource.data.createdBy == uid()
@@ -708,11 +708,8 @@ service cloud.firestore {
     }
 
     match /documents/{recordId} {
-      allow read: if isSystemOwner()
-        || (
-          hasPermission("document.view")
-          && classifiedRecordAllowed(resource.data)
-        );
+      allow read: if hasPermission("document.view")
+        && classifiedRecordAllowed(resource.data);
 
       allow create: if hasPermission("document.manage")
         && request.resource.data.createdBy == uid()
@@ -778,11 +775,8 @@ service cloud.firestore {
     }
 
     match /investigations/{recordId} {
-      allow read: if isSystemOwner()
-        || (
-          hasPermission("investigation.view")
-          && classifiedRecordAllowed(resource.data)
-        );
+      allow read: if hasPermission("investigation.view")
+        && classifiedRecordAllowed(resource.data);
 
       allow create: if hasPermission("investigation.manage")
         && request.resource.data.createdBy == uid()
