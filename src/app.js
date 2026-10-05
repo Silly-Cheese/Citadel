@@ -692,7 +692,7 @@ async function renderHome(target) {
           <div class="card-body">
             <div class="security-grid" style="grid-template-columns:1fr">
               <div class="security-box"><span>Employee ID</span><strong>${esc(state.employee?.employeeId || "—")}</strong></div>
-              <div class="security-box"><span>Clearance</span><strong>C${Number(state.profile?.clearanceLevel || 0)}</strong></div>
+              <div class="security-box"><span>Effective clearance</span><strong>C${effectiveClearance()}${temporaryGrantActive() && effectiveClearance() > Number(state.profile?.clearanceLevel||0) ? " · Temporary" : ""}</strong></div>
               <div class="security-box"><span>Primary role</span><strong>${esc(state.profile?.roles?.[0] || "—")}</strong></div>
             </div>
           </div>
