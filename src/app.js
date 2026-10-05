@@ -1186,7 +1186,7 @@ async function renderCustomers(target) {
               <tr data-customer="${esc(c.id)}" style="cursor:pointer">
                 <td><div class="primary-cell">${esc(customerDisplayName(c))}</div><div class="secondary">${esc(c.customerId || "—")}</div></td>
                 <td>${statusBadge(c.status || "Active")}</td>
-                <td>${classificationBadge(c.classification || "STANDARD")}</td>
+                <td><div>${classificationBadge(c.classification || "STANDARD")}</div>${c.recordLocked ? `<div class="secondary">🔒 Locked · C${Number(c.lockMinimumClearance || c.accessLevel || 0)}</div>` : ""}</td>
                 <td><div>${esc(c.email || "—")}</div><div class="secondary">${esc(c.phone || "")}</div></td>
                 <td><div class="primary-cell">${esc(employeeDisplay(employees,c.assignedEmployeeId))}</div><div class="secondary">${esc(employeeDisplayContext(employees,c.assignedEmployeeId))}</div></td>
                 <td>${esc(fmtDate(c.updatedAt || c.createdAt))}</td>
@@ -1240,6 +1240,11 @@ function newCustomerModal() {
           status: String(fd.get("status") || "Active"),
           classification: String(fd.get("classification") || "STANDARD"),
           minimumClearance: classificationLevel(String(fd.get("classification") || "STANDARD")),
+          recordLocked: false,
+          lockMinimumClearance: 0,
+          lockReasonCode: "",
+          lockReasonDetail: "",
+          accessLevel: classificationLevel(String(fd.get("classification") || "STANDARD")),
           assignedEmployeeId: state.employee?.employeeId || null,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
