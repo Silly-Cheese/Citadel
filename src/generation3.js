@@ -98,21 +98,24 @@ function temporaryPermissionPicker(selectedPermissions = []) {
   const selected=new Set(selectedPermissions);
   return Object.entries(TEMP_PERMISSION_GROUPS).map(([group,permissions],index)=>{
     const selectedCount=permissions.filter(permission=>selected.has(permission)).length;
-    return `<details class="permission-group" data-temp-permission-group ${index<2||selectedCount?"open":""}>
-      <summary class="permission-group-head">
-        <div class="permission-group-title">
+    const expanded=index<2||selectedCount>0;
+    return `<section class="permission-group ${expanded?"is-open":""}" data-temp-permission-group>
+      <button class="permission-group-head" type="button" data-temp-toggle-group aria-expanded="${expanded?"true":"false"}">
+        <span class="permission-group-title">
           <span class="permission-group-icon">${esc(group.charAt(0))}</span>
-          <span><strong>${esc(group)}</strong><small><span data-temp-group-selected>${selectedCount}</span> of ${permissions.length} selected</small></span>
-        </div>
+          <span class="permission-group-text"><strong>${esc(group)}</strong><small><span data-temp-group-selected>${selectedCount}</span> of ${permissions.length} selected</small></span>
+        </span>
         <span class="permission-chevron">⌄</span>
-      </summary>
-      <div class="permission-list">${permissions.map(permission=>`
-        <label class="permission-row" data-temp-permission-option="${esc((tempPermissionFriendlyName(permission)+" "+permission).toLowerCase())}">
-          <span class="permission-check"><input type="checkbox" name="permissions" value="${esc(permission)}" ${selected.has(permission)?"checked":""}/><i></i></span>
-          <span class="permission-copy"><strong>${esc(tempPermissionFriendlyName(permission))}</strong><small>${esc(permission)}</small></span>
-        </label>
-      `).join("")}</div>
-    </details>`;
+      </button>
+      <div class="permission-group-body" ${expanded?"":"hidden"}>
+        <div class="permission-list">${permissions.map(permission=>`
+          <label class="permission-row" data-temp-permission-option="${esc((tempPermissionFriendlyName(permission)+" "+permission).toLowerCase())}">
+            <span class="permission-check"><input type="checkbox" name="permissions" value="${esc(permission)}" ${selected.has(permission)?"checked":""}/><i></i></span>
+            <span class="permission-copy"><strong>${esc(tempPermissionFriendlyName(permission))}</strong><small>${esc(permission)}</small></span>
+          </label>
+        `).join("")}</div>
+      </div>
+    </section>`;
   }).join("");
 }
 
@@ -306,9 +309,22 @@ export function createGeneration3(ctx) {
       root.querySelectorAll("[data-temp-permission-group]").forEach(group=>{
         const visible=[...group.querySelectorAll("[data-temp-permission-option]")].some(el=>!el.hidden);
         group.hidden=!visible;
-        if(term&&visible) group.open=true;
+        if(term&&visible){
+          group.classList.add("is-open");
+          group.querySelector("[data-temp-toggle-group]")?.setAttribute("aria-expanded","true");
+          const body=group.querySelector(".permission-group-body");
+          if(body) body.hidden=false;
+        }
       });
     });
+    root.querySelectorAll("[data-temp-toggle-group]").forEach(button=>button.addEventListener("click",()=>{
+      const group=button.closest("[data-temp-permission-group]");
+      const open=!group.classList.contains("is-open");
+      group.classList.toggle("is-open",open);
+      button.setAttribute("aria-expanded",String(open));
+      const body=group.querySelector(".permission-group-body");
+      if(body) body.hidden=!open;
+    }));
     root.querySelectorAll('input[name="permissions"]').forEach(el=>el.addEventListener("change",refresh));
     refresh();
   }
