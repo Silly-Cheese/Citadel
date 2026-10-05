@@ -109,7 +109,8 @@ service cloud.firestore {
           "security.manage",
           "employee.manage",
           "organization.manage",
-          "admin.organization.manage"
+          "admin.organization.manage",
+          "customer.lock.manage"
         ]);
     }
 
@@ -197,6 +198,78 @@ service cloud.firestore {
         && data.minimumClearance == classificationLevel(data.classification);
     }
 
+    function customerAccessLevelAllowed(level) {
+      return activeAccount()
+        && level is int
+        && (
+          level == 0
+          || (level == 1 && clearanceAtLeast(1))
+          || (level == 2 && clearanceAtLeast(2))
+          || (level == 3 && clearanceAtLeast(3))
+          || (level == 4 && clearanceAtLeast(4))
+          || (level == 5 && clearanceAtLeast(5))
+          || (level == 6 && clearanceAtLeast(6))
+          || (level == 7 && clearanceAtLeast(7))
+          || (level == 8 && clearanceAtLeast(8))
+          || (level == 9 && clearanceAtLeast(9))
+          || (level == 10 && clearanceAtLeast(10))
+        );
+    }
+
+    function customerRequiredAccessLevel(data) {
+      return data.recordLocked == true
+        && data.lockMinimumClearance > classificationLevel(data.classification)
+        ? data.lockMinimumClearance
+        : classificationLevel(data.classification);
+    }
+
+    function validCustomerSecurity(data) {
+      return validClassification(data)
+        && data.recordLocked is bool
+        && data.lockMinimumClearance is int
+        && data.lockMinimumClearance >= 0
+        && data.lockMinimumClearance <= 10
+        && data.accessLevel is int
+        && data.accessLevel >= 0
+        && data.accessLevel <= 10
+        && data.accessLevel == customerRequiredAccessLevel(data)
+        && (
+          data.recordLocked == true
+          || data.lockMinimumClearance == 0
+        );
+    }
+
+    function customerRecordAllowed(data) {
+      return activeAccount()
+        && customerAccessLevelAllowed(data.accessLevel);
+    }
+
+    function customerLockChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        "recordLocked",
+        "lockMinimumClearance",
+        "lockReasonCode",
+        "lockReasonDetail",
+        "lockedByUid",
+        "lockedByEmployeeId",
+        "lockedAt",
+        "unlockedByUid",
+        "unlockedByEmployeeId",
+        "unlockedAt"
+      ]);
+    }
+
+    function canManageRequestedCustomerLock(data) {
+      return hasPermanentPermission("customer.lock.manage")
+        && (
+          isSystemOwner()
+          || (
+            profile().clearanceLevel is int
+            && profile().clearanceLevel >= data.lockMinimumClearance
+          )
+        );
+    }
+
     function doesNotChange(fields) {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
     }
@@ -206,7 +279,7 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/customers/$(customerRecordId))
         && (
           isSystemOwner()
-          || classifiedRecordAllowed(
+          || customerRecordAllowed(
             get(/databases/$(database)/documents/customers/$(customerRecordId)).data
           )
         );
@@ -377,23 +450,35 @@ service cloud.firestore {
     }
 
     match /customers/{customerRecordId} {
-      allow read: if hasPermission("customer.view")
-        && classifiedRecordAllowed(resource.data);
+      allow read: if isSystemOwner()
+        || (
+          hasPermission("customer.view")
+          && customerRecordAllowed(resource.data)
+        );
 
       allow create: if hasPermission("customer.create")
-        && validClassification(request.resource.data)
-        && classificationAllowed(request.resource.data.classification);
+        && validCustomerSecurity(request.resource.data)
+        && classificationAllowed(request.resource.data.classification)
+        && customerAccessLevelAllowed(request.resource.data.accessLevel)
+        && (
+          request.resource.data.recordLocked != true
+          || canManageRequestedCustomerLock(request.resource.data)
+        );
 
       allow update: if hasPermission("customer.edit")
         && (
           isSystemOwner()
-          || classifiedRecordAllowed(resource.data)
+          || customerRecordAllowed(resource.data)
         )
-        && validClassification(request.resource.data)
+        && validCustomerSecurity(request.resource.data)
         && classificationAllowed(request.resource.data.classification)
         && request.resource.data.customerId == resource.data.customerId
         && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.createdAt == resource.data.createdAt;
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          !customerLockChanged()
+          || canManageRequestedCustomerLock(request.resource.data)
+        );
 
       allow delete: if false;
     }
@@ -956,7 +1041,8 @@ service cloud.firestore {
           "security.manage",
           "employee.manage",
           "organization.manage",
-          "admin.organization.manage"
+          "admin.organization.manage",
+          "customer.lock.manage"
         ])
         && request.resource.data.requestedClearance is int
         && request.resource.data.requestedClearance >= 0
@@ -1003,7 +1089,8 @@ service cloud.firestore {
           "security.manage",
           "employee.manage",
           "organization.manage",
-          "admin.organization.manage"
+          "admin.organization.manage",
+          "customer.lock.manage"
         ])
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt > request.time
@@ -1025,7 +1112,8 @@ service cloud.firestore {
           "security.manage",
           "employee.manage",
           "organization.manage",
-          "admin.organization.manage"
+          "admin.organization.manage",
+          "customer.lock.manage"
         ])
         && request.resource.data.expiresAt is timestamp
         && (
