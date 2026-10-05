@@ -208,6 +208,22 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /customerInteractions/{interactionId} {
+      allow read: if hasPermission("customer.view");
+      allow create: if hasPermission("customer.edit")
+        && request.resource.data.createdBy == uid();
+      allow update, delete: if false;
+    }
+
+    match /customerFlags/{flagId} {
+      allow read: if hasPermission("customer.view");
+      allow create: if hasPermission("customer.edit")
+        && request.resource.data.createdBy == uid();
+      allow update: if hasPermission("customer.restrict")
+        || hasPermission("customer.edit");
+      allow delete: if false;
+    }
+
     match /cases/{caseRecordId} {
       allow read: if hasPermission("case.view");
 
