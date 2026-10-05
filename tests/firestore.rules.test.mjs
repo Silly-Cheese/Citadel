@@ -134,6 +134,36 @@ test("Citadel customer clearance query is authorized", async () => {
   if (snap.size !== 2) throw new Error(`Expected 2 authorized customers, received ${snap.size}`);
 });
 
+test("classified registry queries are authorized at the caller clearance", async () => {
+  await seedProfile("classifiedquery", {
+    employeeId: "EMP-CLASSIFIED",
+    permissions: ["contract.view", "document.view", "investigation.view"],
+    clearanceLevel: 4
+  });
+
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    const collections = ["contracts", "documents", "investigations"];
+    for (const name of collections) {
+      await setDoc(doc(db, name, "visible"), {
+        classification: "SENSITIVE",
+        minimumClearance: 4
+      });
+      await setDoc(doc(db, name, "hidden"), {
+        classification: "RESTRICTED",
+        minimumClearance: 6
+      });
+    }
+  });
+
+  const db = env.authenticatedContext("classifiedquery").firestore();
+  for (const name of ["contracts", "documents", "investigations"]) {
+    const q = query(collection(db, name), where("minimumClearance", "<=", 4));
+    const snap = await assertSucceeds(getDocs(q));
+    if (snap.size !== 1) throw new Error(`${name}: expected 1 authorized record, received ${snap.size}`);
+  }
+});
+
 test("customer clearance is enforced independently from customer.view", async () => {
   await seedProfile("csr", { permissions: ["customer.view"], clearanceLevel: 1 });
   await env.withSecurityRulesDisabled(async context => {
