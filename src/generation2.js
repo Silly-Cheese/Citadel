@@ -623,14 +623,15 @@ export function createGeneration2(ctx) {
     target.querySelectorAll("[data-org-add]").forEach(btn => btn.addEventListener("click", () => organizationModal(btn.dataset.orgAdd)));
   }
 
-  function organizationModal(type) {
+  async function organizationModal(type) {
+    const refs = await loadReferences();
     const configs = {
       department: {
         title: "New department", collection: "departments", counter: "departments", prefix: "DEP", idField: "departmentId",
         body: `<div class="form-grid">
           <div class="field"><label>Department name</label><input class="input" name="name" required /></div>
           <div class="field"><label>Department code</label><input class="input" name="code" /></div>
-          <div class="field"><label>Leader employee ID</label><input class="input" name="leaderEmployeeId" /></div>
+          ${fieldHtml({name:"leaderEmployeeId",label:"Department leader",type:"employee"}, "", refs)}
           <div class="field"><label>Status</label><select class="select" name="status"><option>Active</option><option>Planned</option><option>Inactive</option></select></div>
           <div class="field span-2"><label>Description</label><textarea class="textarea" name="description"></textarea></div>
         </div>`
@@ -639,8 +640,8 @@ export function createGeneration2(ctx) {
         title: "New position", collection: "positions", counter: "positions", prefix: "POS", idField: "positionId",
         body: `<div class="form-grid">
           <div class="field"><label>Position name</label><input class="input" name="name" required /></div>
-          <div class="field"><label>Department</label><input class="input" name="department" /></div>
-          <div class="field"><label>Reports to position</label><input class="input" name="reportsToPositionId" /></div>
+          ${fieldHtml({name:"department",label:"Department",type:"departmentName"}, "", refs)}
+          ${fieldHtml({name:"reportsToPositionId",label:"Reports to position",type:"position"}, "", refs)}
           <div class="field"><label>Default clearance</label><select class="select" name="defaultClearance">${Array.from({length:11},(_,i)=>`<option value="${i}">C${i}</option>`).join("")}</select></div>
           <div class="field"><label>Status</label><select class="select" name="status"><option>Active</option><option>Planned</option><option>Inactive</option></select></div>
           <div class="field span-2"><label>Description</label><textarea class="textarea" name="description"></textarea></div>
@@ -804,13 +805,14 @@ export function createGeneration2(ctx) {
     });
   }
 
-  function reviewModal() {
+  async function reviewModal() {
+    const refs = await loadReferences();
     openModal({
       title: "New performance review",
       submitLabel: "Create review",
       body: `
         <div class="form-grid">
-          <div class="field"><label>Employee ID</label><input class="input" name="employeeId" required /></div>
+          ${fieldHtml({name:"employeeId",label:"Employee",type:"employee",required:true}, "", refs)}
           <div class="field"><label>Review period</label><input class="input" name="reviewPeriod" placeholder="2026 Annual" required /></div>
           <div class="field"><label>Overall rating</label><select class="select" name="rating"><option>Exceptional</option><option>Exceeds Expectations</option><option selected>Meets Expectations</option><option>Needs Improvement</option><option>Unsatisfactory</option></select></div>
           <div class="field"><label>Status</label><select class="select" name="status"><option>Draft</option><option>Manager Review</option><option>Delivered</option><option>Final</option></select></div>
@@ -831,13 +833,14 @@ export function createGeneration2(ctx) {
     });
   }
 
-  function disciplineModal() {
+  async function disciplineModal() {
+    const refs = await loadReferences();
     openModal({
       title: "Record employee relations action",
       submitLabel: "Record action",
       body: `
         <div class="form-grid">
-          <div class="field"><label>Employee ID</label><input class="input" name="employeeId" required /></div>
+          ${fieldHtml({name:"employeeId",label:"Employee",type:"employee",required:true}, "", refs)}
           <div class="field"><label>Action type</label><select class="select" name="actionType"><option>Coaching</option><option>Verbal Warning</option><option>Written Warning</option><option>Final Warning</option><option>Suspension</option><option>Investigation Referral</option></select></div>
           <div class="field"><label>Status</label><select class="select" name="status"><option>Open</option><option>Final</option><option>Appealed</option><option>Closed</option></select></div>
           <div class="field"><label>Effective date</label><input class="input" name="effectiveDate" type="date" /></div>
@@ -894,12 +897,13 @@ export function createGeneration2(ctx) {
         </section>
       </div>
     `;
-    target.querySelector("[data-training]")?.addEventListener("click",()=>{
+    target.querySelector("[data-training]")?.addEventListener("click",async()=>{
+      const refs = await loadReferences();
       openModal({
         title:"Add training record",
         submitLabel:"Add record",
         body:`<div class="form-grid">
-          <div class="field"><label>Employee ID</label><input class="input" name="employeeId" required /></div>
+          ${fieldHtml({name:"employeeId",label:"Employee",type:"employee",required:true}, "", refs)}
           <div class="field"><label>Course / certification</label><input class="input" name="title" required /></div>
           <div class="field"><label>Status</label><select class="select" name="status"><option>Assigned</option><option>In Progress</option><option>Completed</option><option>Expired</option><option>Waived</option></select></div>
           <div class="field"><label>Completed date</label><input class="input" name="completedDate" type="date" /></div>
@@ -949,7 +953,8 @@ export function createGeneration2(ctx) {
     }
   }
 
-  function manageServiceTicket(record) {
+  async function manageServiceTicket(record) {
+    const refs = await loadReferences();
     openModal({
       title:`Manage ticket · ${record.ticketId || ""}`,
       submitLabel:"Save ticket",
@@ -957,7 +962,7 @@ export function createGeneration2(ctx) {
         <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.title||"Service request")}</strong>${esc(record.description||"")}</div></div>
         <div class="form-grid">
           <div class="field"><label>Status</label><select class="select" name="status">${["New","Assigned","In Progress","Pending Requester","Pending Internal","Resolved","Closed","Cancelled"].map(v=>`<option ${record.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
-          <div class="field"><label>Assigned employee ID</label><input class="input" name="assignedEmployeeId" value="${esc(record.assignedEmployeeId||"")}" /></div>
+          ${fieldHtml({name:"assignedEmployeeId",label:"Assigned employee",type:"employee"}, record.assignedEmployeeId||"", refs)}
           <div class="field"><label>Priority</label><select class="select" name="priority">${["Low","Normal","High","Critical"].map(v=>`<option ${record.priority===v?"selected":""}>${v}</option>`).join("")}</select></div>
           <div class="field span-2"><label>Resolution / internal update</label><textarea class="textarea" name="resolution">${esc(record.resolution||"")}</textarea></div>
         </div>
@@ -1049,7 +1054,8 @@ export function createGeneration2(ctx) {
     }
   }
 
-  function managePurchaseRequest(record){
+  async function managePurchaseRequest(record){
+    const refs = await loadReferences();
     openModal({
       title:`Manage purchase request · ${record.purchaseRequestId||""}`,
       submitLabel:"Save request",
@@ -1057,7 +1063,7 @@ export function createGeneration2(ctx) {
         <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.title||"Purchase request")}</strong>${money(record.estimatedCost)} · ${esc(record.department||"No department")}</div></div>
         <div class="form-grid">
           <div class="field"><label>Status</label><select class="select" name="status">${["Submitted","Pending Approval","Approved","Denied","Sourcing","Ordered","Received","Closed","Cancelled"].map(v=>`<option ${record.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
-          <div class="field"><label>Selected vendor</label><input class="input" name="selectedVendor" value="${esc(record.selectedVendor||record.preferredVendor||"")}" /></div>
+          <div class="field"><label>Selected vendor</label><select class="select" name="selectedVendor"><option value="">Select vendor</option>${refs.vendors.map(v=>`<option value="${esc(v.name||v.vendorId||v.id)}" ${String(record.selectedVendor||record.preferredVendor||"")===String(v.name||v.vendorId||v.id)?"selected":""}>${esc(v.name||"Vendor")}</option>`).join("")}</select></div>
           <div class="field"><label>PO / reference</label><input class="input" name="purchaseOrderRef" value="${esc(record.purchaseOrderRef||"")}" /></div>
           <div class="field span-2"><label>Procurement notes</label><textarea class="textarea" name="procurementNotes">${esc(record.procurementNotes||"")}</textarea></div>
         </div>
@@ -1082,15 +1088,16 @@ export function createGeneration2(ctx) {
     });
   }
 
-  function purchaseModal(){
+  async function purchaseModal(){
+    const refs = await loadReferences();
     openModal({
       title:"Purchase request",
       submitLabel:"Submit request",
       body:`<div class="form-grid">
         <div class="field span-2"><label>Purchase title</label><input class="input" name="title" required /></div>
-        <div class="field"><label>Department</label><input class="input" name="department" value="${esc(state.employee?.departmentName||"")}" /></div>
+        ${fieldHtml({name:"department",label:"Department",type:"departmentName"}, state.employee?.departmentName||"", refs)}
         <div class="field"><label>Estimated cost</label><input class="input" type="number" min="0" step=".01" name="estimatedCost" required /></div>
-        <div class="field"><label>Preferred vendor</label><input class="input" name="preferredVendor" /></div>
+        <div class="field"><label>Preferred vendor</label><select class="select" name="preferredVendor"><option value="">No preference</option>${refs.vendors.map(v=>`<option value="${esc(v.name||v.vendorId||v.id)}">${esc(v.name||"Vendor")}</option>`).join("")}</select></div>
         <div class="field"><label>Needed by</label><input class="input" name="neededBy" type="date" /></div>
         <div class="field span-2"><label>Business justification</label><textarea class="textarea" name="justification" required></textarea></div>
       </div>`,
@@ -1286,7 +1293,8 @@ export function createGeneration2(ctx) {
     target.querySelector("[data-finding]")?.addEventListener("click",findingModal);
   }
 
-  function policyModal(){
+  async function policyModal(){
+    const refs = await loadReferences();
     openModal({
       title:"New policy",
       submitLabel:"Create policy",
@@ -1294,7 +1302,7 @@ export function createGeneration2(ctx) {
         <div class="field span-2"><label>Policy title</label><input class="input" name="title" required /></div>
         <div class="field"><label>Category</label><input class="input" name="category" /></div>
         <div class="field"><label>Status</label><select class="select" name="status"><option>Draft</option><option>Active</option><option>Under Review</option><option>Retired</option></select></div>
-        <div class="field"><label>Owner employee ID</label><input class="input" name="ownerEmployeeId" /></div>
+        ${fieldHtml({name:"ownerEmployeeId",label:"Policy owner",type:"employee"}, "", refs)}
         <div class="field"><label>Review date</label><input class="input" type="date" name="reviewDate" /></div>
         <div class="field span-2"><label>Policy summary</label><textarea class="textarea" name="summary" required></textarea></div>
       </div>`,
@@ -1324,7 +1332,8 @@ export function createGeneration2(ctx) {
     });
   }
 
-  function findingModal(){
+  async function findingModal(){
+    const refs = await loadReferences();
     openModal({
       title:"New compliance finding",
       submitLabel:"Create finding",
@@ -1332,7 +1341,7 @@ export function createGeneration2(ctx) {
         <div class="field span-2"><label>Finding title</label><input class="input" name="title" required /></div>
         <div class="field"><label>Severity</label><select class="select" name="severity"><option>Low</option><option>Moderate</option><option>High</option><option>Critical</option></select></div>
         <div class="field"><label>Status</label><select class="select" name="status"><option>Open</option><option>Remediation</option><option>Verification</option><option>Remediated</option><option>Closed</option></select></div>
-        <div class="field"><label>Owner employee ID</label><input class="input" name="ownerEmployeeId" /></div>
+        ${fieldHtml({name:"ownerEmployeeId",label:"Finding owner",type:"employee"}, "", refs)}
         <div class="field"><label>Due date</label><input class="input" type="date" name="dueDate" /></div>
         <div class="field span-2"><label>Finding details</label><textarea class="textarea" name="details" required></textarea></div>
         <div class="field span-2"><label>Remediation plan</label><textarea class="textarea" name="remediationPlan"></textarea></div>
