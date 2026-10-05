@@ -756,3 +756,108 @@ a { color: inherit; text-decoration: none; }
     border-right: 0;
   }
 }
+
+
+/* Entity selectors, permission pickers, and bulk record selection */
+.permission-picker {
+  display: grid;
+  gap: 12px;
+  max-height: 430px;
+  overflow: auto;
+  padding-right: 4px;
+}
+.permission-group {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0d0f13;
+}
+.permission-group-head {
+  min-height: 39px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--border);
+  background: #11141a;
+}
+.permission-group-head strong {
+  font-size: 11px;
+  letter-spacing: .015em;
+}
+.permission-group-head span {
+  color: var(--muted-2);
+  font-size: 10px;
+}
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 1px;
+  background: var(--border);
+}
+.permission-option {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto minmax(0,1fr);
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 11px;
+  background: #0e1014;
+  cursor: pointer;
+}
+.permission-option:hover {
+  background: #15181e;
+}
+.permission-option input {
+  margin: 3px 0 0;
+  accent-color: #f2f3f5;
+}
+.permission-option strong {
+  display: block;
+  color: #d9dde2;
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.permission-option small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted-2);
+  font-size: 9px;
+  line-height: 1.35;
+}
+.record-picker {
+  max-height: 380px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0d0f13;
+}
+.record-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 1px;
+  background: var(--border);
+}
+.empty.compact {
+  padding: 24px 16px;
+}
+.select {
+  text-overflow: ellipsis;
+}
+.select option {
+  background: #111318;
+  color: var(--text);
+}
+
+@media (max-width: 700px) {
+  .permission-grid,
+  .record-picker-grid {
+    grid-template-columns: 1fr;
+  }
+  .permission-picker,
+  .record-picker {
+    max-height: 330px;
+  }
+}
