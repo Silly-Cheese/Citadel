@@ -76,6 +76,31 @@ async function seedOwner() {
   });
 }
 
+function customerRecord({
+  customerId = "CUS-TEST",
+  classification = "STANDARD",
+  minimumClearance = 0,
+  recordLocked = false,
+  lockMinimumClearance = 0,
+  accessLevel = minimumClearance,
+  createdBy = "seed",
+  createdAt = Timestamp.fromMillis(1700000000000)
+} = {}) {
+  return {
+    customerId,
+    classification,
+    minimumClearance,
+    recordLocked,
+    lockMinimumClearance,
+    lockReasonCode: recordLocked ? "Security Concern" : "",
+    lockReasonDetail: recordLocked ? "Test lock" : "",
+    accessLevel,
+    createdBy,
+    createdAt,
+    updatedAt: createdAt
+  };
+}
+
 before(async () => {
   const rules = await readFile(new URL("../firestore.rules", import.meta.url), "utf8");
   const { host, port } = emulatorAddress();
@@ -95,11 +120,9 @@ after(async () => {
 
 test("unauthenticated users cannot read customer records", async () => {
   await env.withSecurityRulesDisabled(async context => {
-    await setDoc(doc(context.firestore(), "customers", "customer1"), {
-      customerId: "CUS-000001",
-      classification: "STANDARD",
-      minimumClearance: 0
-    });
+    await setDoc(doc(context.firestore(), "customers", "customer1"), customerRecord({
+      customerId: "CUS-000001"
+    }));
   });
   const db = env.unauthenticatedContext().firestore();
   await assertFails(getDoc(doc(db, "customers", "customer1")));
@@ -113,25 +136,26 @@ test("Citadel customer clearance query is authorized", async () => {
   });
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
-    await setDoc(doc(db, "customers", "standard"), {
+    await setDoc(doc(db, "customers", "standard"), customerRecord({
       customerId: "CUS-Q001",
-      classification: "STANDARD",
-      minimumClearance: 0
-    });
-    await setDoc(doc(db, "customers", "internal"), {
+      accessLevel: 0
+    }));
+    await setDoc(doc(db, "customers", "internal"), customerRecord({
       customerId: "CUS-Q002",
       classification: "INTERNAL",
-      minimumClearance: 1
-    });
-    await setDoc(doc(db, "customers", "restricted"), {
+      minimumClearance: 1,
+      accessLevel: 1
+    }));
+    await setDoc(doc(db, "customers", "restricted"), customerRecord({
       customerId: "CUS-Q003",
       classification: "RESTRICTED",
-      minimumClearance: 6
-    });
+      minimumClearance: 6,
+      accessLevel: 6
+    }));
   });
 
   const db = env.authenticatedContext("csrquery").firestore();
-  const q = query(collection(db, "customers"), where("classification", "in", ["STANDARD","INTERNAL"]));
+  const q = query(collection(db, "customers"), where("accessLevel", "in", [0,1]));
   const snap = await assertSucceeds(getDocs(q));
   if (snap.size !== 2) throw new Error(`Expected 2 authorized customers, received ${snap.size}`);
 });
@@ -170,20 +194,137 @@ test("customer clearance is enforced independently from customer.view", async ()
   await seedProfile("csr", { permissions: ["customer.view"], clearanceLevel: 1 });
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
-    await setDoc(doc(db, "customers", "standard"), {
+    await setDoc(doc(db, "customers", "standard"), customerRecord({
       customerId: "CUS-000001",
-      classification: "STANDARD",
-      minimumClearance: 0
-    });
-    await setDoc(doc(db, "customers", "restricted"), {
+      accessLevel: 0
+    }));
+    await setDoc(doc(db, "customers", "restricted"), customerRecord({
       customerId: "CUS-000002",
       classification: "RESTRICTED",
-      minimumClearance: 6
-    });
+      minimumClearance: 6,
+      accessLevel: 6
+    }));
   });
   const db = env.authenticatedContext("csr").firestore();
   await assertSucceeds(getDoc(doc(db, "customers", "standard")));
   await assertFails(getDoc(doc(db, "customers", "restricted")));
+});
+
+test("C7 customer locks deny lower clearance and allow C7", async () => {
+  await seedProfile("c6viewer", {
+    employeeId: "EMP-C6",
+    permissions: ["customer.view"],
+    clearanceLevel: 6
+  });
+  await seedProfile("c7viewer", {
+    employeeId: "EMP-C7",
+    permissions: ["customer.view"],
+    clearanceLevel: 7
+  });
+
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), "customers", "locked-c7"), customerRecord({
+      customerId: "CUS-LOCK7",
+      classification: "STANDARD",
+      minimumClearance: 0,
+      recordLocked: true,
+      lockMinimumClearance: 7,
+      accessLevel: 7
+    }));
+  });
+
+  await assertFails(getDoc(doc(env.authenticatedContext("c6viewer").firestore(), "customers", "locked-c7")));
+  await assertSucceeds(getDoc(doc(env.authenticatedContext("c7viewer").firestore(), "customers", "locked-c7")));
+});
+
+test("customer accessLevel queries exclude locked customers below clearance", async () => {
+  await seedProfile("c4list", {
+    employeeId: "EMP-C4LIST",
+    permissions: ["customer.view"],
+    clearanceLevel: 4
+  });
+
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, "customers", "visible"), customerRecord({
+      customerId: "CUS-VISIBLE",
+      classification: "SENSITIVE",
+      minimumClearance: 4,
+      accessLevel: 4
+    }));
+    await setDoc(doc(db, "customers", "locked"), customerRecord({
+      customerId: "CUS-LOCKED",
+      classification: "STANDARD",
+      minimumClearance: 0,
+      recordLocked: true,
+      lockMinimumClearance: 7,
+      accessLevel: 7
+    }));
+  });
+
+  const db = env.authenticatedContext("c4list").firestore();
+  const q = query(collection(db, "customers"), where("accessLevel", "in", [0,1,2,3,4]));
+  const snap = await assertSucceeds(getDocs(q));
+  if (snap.size !== 1) throw new Error(`Expected only the C4-visible customer, received ${snap.size}`);
+});
+
+test("customer editors without lock authority cannot change lock fields", async () => {
+  await seedProfile("editor", {
+    employeeId: "EMP-EDITOR",
+    permissions: ["customer.view", "customer.edit"],
+    clearanceLevel: 7
+  });
+
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), "customers", "customer"), customerRecord({
+      customerId: "CUS-EDIT",
+      createdBy: "seed"
+    }));
+  });
+
+  const db = env.authenticatedContext("editor").firestore();
+  await assertFails(updateDoc(doc(db, "customers", "customer"), {
+    recordLocked: true,
+    lockMinimumClearance: 7,
+    lockReasonCode: "Security Concern",
+    lockReasonDetail: "Unauthorized lock",
+    accessLevel: 7
+  }));
+});
+
+test("permanent customer lock managers can lock at or below their clearance", async () => {
+  await seedProfile("lockmgr", {
+    employeeId: "EMP-LOCKMGR",
+    permissions: ["customer.view", "customer.edit", "customer.lock.manage"],
+    clearanceLevel: 7
+  });
+
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), "customers", "customer"), customerRecord({
+      customerId: "CUS-LOCKME",
+      createdBy: "seed"
+    }));
+  });
+
+  const db = env.authenticatedContext("lockmgr").firestore();
+  await assertSucceeds(updateDoc(doc(db, "customers", "customer"), {
+    recordLocked: true,
+    lockMinimumClearance: 7,
+    lockReasonCode: "Security Concern",
+    lockReasonDetail: "Authorized lock",
+    accessLevel: 7,
+    lockedByUid: "lockmgr",
+    lockedByEmployeeId: "EMP-LOCKMGR",
+    lockedAt: serverTimestamp()
+  }));
+
+  await assertFails(updateDoc(doc(db, "customers", "customer"), {
+    recordLocked: true,
+    lockMinimumClearance: 8,
+    lockReasonCode: "Security Concern",
+    lockReasonDetail: "Above manager clearance",
+    accessLevel: 8
+  }));
 });
 
 test("delegated access admins cannot create C10 or grant reserved permissions", async () => {
