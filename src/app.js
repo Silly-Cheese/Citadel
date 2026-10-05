@@ -20,7 +20,7 @@ import {
   writeBatch,
   runTransaction,
   where
-} from "./firebase.js?v=20261005-r3";
+} from "./firebase.js?v=20261005-r4";
 import {
   esc,
   initials,
@@ -29,10 +29,10 @@ import {
   statusBadge,
   classificationBadge,
   customerDisplayName
-} from "./utils.js?v=20261005-r3";
-import { toast, openModal } from "./ui.js?v=20261005-r3";
-import { createGeneration2, GENERATION2_NAV, GENERATION2_PERMISSIONS } from "./generation2.js?v=20261005-r3";
-import { createGeneration3, GENERATION3_NAV, GENERATION3_PERMISSIONS } from "./generation3.js?v=20261005-r3";
+} from "./utils.js?v=20261005-r4";
+import { toast, openModal } from "./ui.js?v=20261005-r4";
+import { createGeneration2, GENERATION2_NAV, GENERATION2_PERMISSIONS } from "./generation2.js?v=20261005-r4";
+import { createGeneration3, GENERATION3_NAV, GENERATION3_PERMISSIONS } from "./generation3.js?v=20261005-r4";
 
 const app = document.getElementById("app");
 
