@@ -51,6 +51,7 @@ export const GENERATION2_PERMISSIONS = [
 export const GENERATION2_NAV = [
   { section: "People", id: "hr", label: "HR Operations", icon: "◫", anyPermission: ["hr.view", "hr.request.leave"] },
   { section: "People", id: "training", label: "Training", icon: "△", anyPermission: ["training.view", "training.self"] },
+  { section: "Organization", id: "organization", label: "Structure", icon: "⌘", permission: "organization.view" },
 
   { section: "Operations", id: "service", label: "Service Desk", icon: "◇", anyPermission: ["service.view", "service.create"] },
   { section: "Operations", id: "assets", label: "Assets", icon: "▣", permission: "asset.view" },
@@ -427,6 +428,111 @@ export function createGeneration2(ctx) {
       const submit = form?.querySelector('button[type="submit"]');
       if (submit) submit.textContent = "Close";
     }
+  }
+
+
+  async function renderOrganization(target) {
+    const [departments, positions, locations] = await Promise.all([
+      safeCollection("departments", 100),
+      safeCollection("positions", 120),
+      safeCollection("locations", 100)
+    ]);
+    const canManage = hasPermission("organization.manage");
+
+    target.innerHTML = `
+      <div class="page">
+        ${pageHeader("Organization", "Departments, positions, locations, and the structure behind Citadel access and reporting.", canManage ? '<button class="btn btn-primary" data-org-add="department">New department</button><button class="btn" data-org-add="position">New position</button><button class="btn" data-org-add="location">New location</button>' : "")}
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-label">Departments</div><div class="kpi-value">${departments.length}</div><div class="kpi-meta">Operational and corporate units</div></div>
+          <div class="kpi-card"><div class="kpi-label">Positions</div><div class="kpi-value">${positions.length}</div><div class="kpi-meta">Position-based access foundation</div></div>
+          <div class="kpi-card"><div class="kpi-label">Locations</div><div class="kpi-value">${locations.length}</div><div class="kpi-meta">Physical or operating sites</div></div>
+          <div class="kpi-card"><div class="kpi-label">Structure status</div><div class="kpi-value kpi-small">Connected</div><div class="kpi-meta">Shared across enterprise modules</div></div>
+        </div>
+        <div class="section-stack">
+          <section class="card">
+            <div class="card-head"><div><h2>Departments</h2><p>Organizational units and leadership assignments</p></div></div>
+            ${departments.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Department</th><th>Code</th><th>Leader</th><th>Status</th></tr></thead><tbody>
+              ${departments.map(r=>`<tr><td>${cell(r.name||"Department",r.departmentId)}</td><td>${esc(r.code||"—")}</td><td>${esc(r.leaderEmployeeId||"Unassigned")}</td><td>${statusBadge(r.status||"Active")}</td></tr>`).join("")}
+            </tbody></table></div>` : '<div class="empty"><strong>No departments configured</strong><p>Departments can be created by Organization administrators.</p></div>'}
+          </section>
+          <div class="grid-2">
+            <section class="card">
+              <div class="card-head"><div><h2>Positions</h2><p>Job positions used by personnel and access control</p></div></div>
+              ${positions.length ? `<div class="list">${positions.slice(0,18).map(r=>`<div class="list-row"><div class="grow"><strong>${esc(r.name||"Position")}</strong><span>${esc(r.positionId||"—")} · ${esc(r.department||"No department")}</span></div>${statusBadge(r.status||"Active")}</div>`).join("")}</div>` : '<div class="empty"><strong>No positions configured</strong><p>Position definitions will appear here.</p></div>'}
+            </section>
+            <section class="card">
+              <div class="card-head"><div><h2>Locations</h2><p>Operating sites and corporate facilities</p></div></div>
+              ${locations.length ? `<div class="list">${locations.slice(0,18).map(r=>`<div class="list-row"><div class="grow"><strong>${esc(r.name||"Location")}</strong><span>${esc(r.locationId||"—")} · ${esc(r.city||"")} ${esc(r.state||"")}</span></div>${statusBadge(r.status||"Active")}</div>`).join("")}</div>` : '<div class="empty"><strong>No locations configured</strong><p>Corporate locations will appear here.</p></div>'}
+            </section>
+          </div>
+        </div>
+      </div>
+    `;
+
+    target.querySelectorAll("[data-org-add]").forEach(btn => btn.addEventListener("click", () => organizationModal(btn.dataset.orgAdd)));
+  }
+
+  function organizationModal(type) {
+    const configs = {
+      department: {
+        title: "New department", collection: "departments", counter: "departments", prefix: "DEP", idField: "departmentId",
+        body: `<div class="form-grid">
+          <div class="field"><label>Department name</label><input class="input" name="name" required /></div>
+          <div class="field"><label>Department code</label><input class="input" name="code" /></div>
+          <div class="field"><label>Leader employee ID</label><input class="input" name="leaderEmployeeId" /></div>
+          <div class="field"><label>Status</label><select class="select" name="status"><option>Active</option><option>Planned</option><option>Inactive</option></select></div>
+          <div class="field span-2"><label>Description</label><textarea class="textarea" name="description"></textarea></div>
+        </div>`
+      },
+      position: {
+        title: "New position", collection: "positions", counter: "positions", prefix: "POS", idField: "positionId",
+        body: `<div class="form-grid">
+          <div class="field"><label>Position name</label><input class="input" name="name" required /></div>
+          <div class="field"><label>Department</label><input class="input" name="department" /></div>
+          <div class="field"><label>Reports to position</label><input class="input" name="reportsToPositionId" /></div>
+          <div class="field"><label>Default clearance</label><select class="select" name="defaultClearance">${Array.from({length:11},(_,i)=>`<option value="${i}">C${i}</option>`).join("")}</select></div>
+          <div class="field"><label>Status</label><select class="select" name="status"><option>Active</option><option>Planned</option><option>Inactive</option></select></div>
+          <div class="field span-2"><label>Description</label><textarea class="textarea" name="description"></textarea></div>
+        </div>`
+      },
+      location: {
+        title: "New location", collection: "locations", counter: "locations", prefix: "LOC", idField: "locationId",
+        body: `<div class="form-grid">
+          <div class="field"><label>Location name</label><input class="input" name="name" required /></div>
+          <div class="field"><label>Location type</label><select class="select" name="locationType"><option>Headquarters</option><option>Office</option><option>Store</option><option>Warehouse</option><option>Service Center</option><option>Remote</option><option>Other</option></select></div>
+          <div class="field"><label>City</label><input class="input" name="city" /></div>
+          <div class="field"><label>State / region</label><input class="input" name="state" /></div>
+          <div class="field"><label>Status</label><select class="select" name="status"><option>Active</option><option>Planned</option><option>Closed</option></select></div>
+          <div class="field span-2"><label>Address / notes</label><textarea class="textarea" name="address"></textarea></div>
+        </div>`
+      }
+    };
+    const cfg=configs[type];
+    openModal({
+      title:cfg.title,
+      submitLabel:"Create",
+      body:cfg.body,
+      onSubmit:async fd=>{
+        try{
+          const humanId=await nextId(cfg.counter,cfg.prefix);
+          const ref=doc(collection(db,cfg.collection));
+          const data={};
+          for(const [key,value] of fd.entries()) data[key]=String(value).trim();
+          if(data.defaultClearance !== undefined) data.defaultClearance=Number(data.defaultClearance||0);
+          await setDoc(ref,{
+            ...data,
+            [cfg.idField]:humanId,
+            createdAt:serverTimestamp(),
+            updatedAt:serverTimestamp(),
+            createdBy:state.user.uid
+          });
+          await audit(`${type.toUpperCase()}_CREATED`,type,ref.id,{humanId});
+          toast(`${cfg.title.replace("New ","")} created`,humanId);
+          await renderPage();
+          return true;
+        }catch(error){toast("Creation failed",firebaseMessage(error));return false;}
+      }
+    });
   }
 
   async function renderHR(target) {
@@ -938,6 +1044,7 @@ export function createGeneration2(ctx) {
   const renderers = {
     hr: renderHR,
     training: renderTraining,
+    organization: renderOrganization,
     service: renderService,
     assets: target => renderRegistry(target,"assets"),
     procurement: renderProcurement,
