@@ -1,0 +1,954 @@
+import {
+  db,
+  doc,
+  setDoc,
+  updateDoc,
+  collection,
+  getDocs,
+  query,
+  orderBy,
+  limit,
+  where,
+  serverTimestamp
+} from "./firebase.js";
+import { esc, fmtDate, fmtDateTime, statusBadge, classificationBadge } from "./utils.js";
+
+export const GENERATION2_PERMISSIONS = [
+  "hr.view",
+  "hr.manage",
+  "hr.request.leave",
+  "training.view",
+  "training.manage",
+  "asset.view",
+  "asset.manage",
+  "service.view",
+  "service.create",
+  "service.manage",
+  "procurement.view",
+  "procurement.request",
+  "procurement.manage",
+  "vendor.view",
+  "vendor.manage",
+  "contract.view",
+  "contract.manage",
+  "finance.view",
+  "finance.expense.create",
+  "finance.manage",
+  "compliance.view",
+  "compliance.manage",
+  "project.view",
+  "project.manage",
+  "document.view",
+  "document.manage",
+  "communications.view",
+  "communications.manage",
+  "workflow.view",
+  "workflow.manage",
+  "organization.view"
+];
+
+export const GENERATION2_NAV = [
+  { section: "People", id: "hr", label: "HR Operations", icon: "◫", anyPermission: ["hr.view", "hr.request.leave"] },
+  { section: "People", id: "training", label: "Training", icon: "△", permission: "training.view" },
+
+  { section: "Operations", id: "service", label: "Service Desk", icon: "◇", anyPermission: ["service.view", "service.create"] },
+  { section: "Operations", id: "assets", label: "Assets", icon: "▣", permission: "asset.view" },
+  { section: "Operations", id: "procurement", label: "Procurement", icon: "↗", anyPermission: ["procurement.view", "procurement.request"] },
+  { section: "Operations", id: "vendors", label: "Vendors", icon: "⬡", permission: "vendor.view" },
+  { section: "Operations", id: "contracts", label: "Contracts", icon: "▤", permission: "contract.view" },
+  { section: "Operations", id: "finance", label: "Finance", icon: "$", anyPermission: ["finance.view", "finance.expense.create"] },
+
+  { section: "Enterprise", id: "projects", label: "Projects", icon: "◈", permission: "project.view" },
+  { section: "Enterprise", id: "documents", label: "Documents", icon: "▧", permission: "document.view" },
+  { section: "Enterprise", id: "communications", label: "Communications", icon: "◒", permission: "communications.view" },
+
+  { section: "Governance", id: "compliance", label: "Compliance", icon: "✓", permission: "compliance.view" },
+  { section: "Governance", id: "workflows", label: "Workflows", icon: "⇄", permission: "workflow.view" }
+];
+
+const MODULES = {
+  assets: {
+    title: "Assets",
+    subtitle: "Corporate equipment, ownership, assignments, condition, and lifecycle.",
+    collection: "assets",
+    prefix: "AST",
+    counter: "assets",
+    view: "asset.view",
+    manage: "asset.manage",
+    createLabel: "Register asset",
+    singular: "asset",
+    columns: [
+      ["Asset", r => cell(r.name || r.assetType || "Asset", r.assetId)],
+      ["Category", r => esc(r.assetType || "General")],
+      ["Status", r => statusBadge(r.status || "Available")],
+      ["Assigned", r => esc(r.assignedEmployeeId || "Unassigned")],
+      ["Serial / Tag", r => esc(r.serialNumber || r.assetTag || "—")],
+      ["Updated", r => esc(fmtDate(r.updatedAt || r.createdAt))]
+    ],
+    fields: [
+      { name: "name", label: "Asset name", required: true },
+      { name: "assetType", label: "Category", type: "select", options: ["Laptop","Phone","Tablet","Vehicle","Badge","Key","Equipment","Other"] },
+      { name: "serialNumber", label: "Serial number" },
+      { name: "assetTag", label: "Asset tag" },
+      { name: "status", label: "Status", type: "select", options: ["Available","Assigned","In Service","Repair","Lost","Retired"] },
+      { name: "assignedEmployeeId", label: "Assigned employee ID" },
+      { name: "location", label: "Location" },
+      { name: "notes", label: "Notes", type: "textarea", span: 2 }
+    ]
+  },
+  vendors: {
+    title: "Vendors",
+    subtitle: "Third-party organizations, contacts, status, and corporate relationships.",
+    collection: "vendors",
+    prefix: "VND",
+    counter: "vendors",
+    view: "vendor.view",
+    manage: "vendor.manage",
+    createLabel: "Add vendor",
+    singular: "vendor",
+    columns: [
+      ["Vendor", r => cell(r.name || "Vendor", r.vendorId)],
+      ["Status", r => statusBadge(r.status || "Active")],
+      ["Category", r => esc(r.category || "General")],
+      ["Primary contact", r => esc(r.contactName || "—")],
+      ["Email", r => esc(r.email || "—")],
+      ["Risk", r => statusBadge(r.riskLevel || "Low")]
+    ],
+    fields: [
+      { name: "name", label: "Vendor name", required: true },
+      { name: "category", label: "Category" },
+      { name: "status", label: "Status", type: "select", options: ["Active","Prospective","Restricted","Inactive"] },
+      { name: "riskLevel", label: "Risk level", type: "select", options: ["Low","Moderate","High","Critical"] },
+      { name: "contactName", label: "Primary contact" },
+      { name: "email", label: "Email", type: "email" },
+      { name: "phone", label: "Phone" },
+      { name: "website", label: "Website" },
+      { name: "notes", label: "Internal notes", type: "textarea", span: 2 }
+    ]
+  },
+  contracts: {
+    title: "Contracts",
+    subtitle: "Contract registry, responsible owners, renewal dates, value, and status.",
+    collection: "contracts",
+    prefix: "CTR",
+    counter: "contracts",
+    view: "contract.view",
+    manage: "contract.manage",
+    createLabel: "New contract",
+    singular: "contract",
+    columns: [
+      ["Contract", r => cell(r.title || "Contract", r.contractId)],
+      ["Vendor", r => esc(r.vendorId || r.vendorName || "—")],
+      ["Status", r => statusBadge(r.status || "Draft")],
+      ["Value", r => money(r.value)],
+      ["Owner", r => esc(r.ownerEmployeeId || "—")],
+      ["Renewal", r => esc(r.renewalDate || "—")]
+    ],
+    fields: [
+      { name: "title", label: "Contract title", required: true, span: 2 },
+      { name: "vendorId", label: "Vendor ID" },
+      { name: "vendorName", label: "Vendor name" },
+      { name: "status", label: "Status", type: "select", options: ["Draft","Review","Active","Expiring","Expired","Terminated"] },
+      { name: "value", label: "Contract value", type: "number" },
+      { name: "startDate", label: "Start date", type: "date" },
+      { name: "renewalDate", label: "Renewal / end date", type: "date" },
+      { name: "ownerEmployeeId", label: "Responsible employee ID" },
+      { name: "classification", label: "Classification", type: "select", options: ["INTERNAL","CONFIDENTIAL","SENSITIVE","RESTRICTED"] },
+      { name: "notes", label: "Contract notes", type: "textarea", span: 2 }
+    ]
+  },
+  projects: {
+    title: "Projects",
+    subtitle: "Strategic and operational initiatives, ownership, health, budgets, and milestones.",
+    collection: "projects",
+    prefix: "PRJ",
+    counter: "projects",
+    view: "project.view",
+    manage: "project.manage",
+    createLabel: "New project",
+    singular: "project",
+    columns: [
+      ["Project", r => cell(r.name || "Project", r.projectId)],
+      ["Status", r => statusBadge(r.status || "Planning")],
+      ["Health", r => statusBadge(r.health || "On Track")],
+      ["Owner", r => esc(r.ownerEmployeeId || "—")],
+      ["Budget", r => money(r.budget)],
+      ["Target", r => esc(r.targetDate || "—")]
+    ],
+    fields: [
+      { name: "name", label: "Project name", required: true, span: 2 },
+      { name: "status", label: "Status", type: "select", options: ["Planning","Active","On Hold","Complete","Cancelled"] },
+      { name: "health", label: "Health", type: "select", options: ["On Track","At Risk","Off Track"] },
+      { name: "ownerEmployeeId", label: "Owner employee ID" },
+      { name: "department", label: "Department" },
+      { name: "budget", label: "Budget", type: "number" },
+      { name: "targetDate", label: "Target date", type: "date" },
+      { name: "summary", label: "Executive summary", type: "textarea", span: 2 }
+    ]
+  },
+  documents: {
+    title: "Documents",
+    subtitle: "Controlled corporate document registry with classification and record ownership.",
+    collection: "documents",
+    prefix: "DOC",
+    counter: "documents",
+    view: "document.view",
+    manage: "document.manage",
+    createLabel: "Register document",
+    singular: "document",
+    columns: [
+      ["Document", r => cell(r.title || "Document", r.documentId)],
+      ["Type", r => esc(r.documentType || "General")],
+      ["Classification", r => classificationBadge(r.classification || "INTERNAL")],
+      ["Owner", r => esc(r.ownerEmployeeId || "—")],
+      ["Status", r => statusBadge(r.status || "Active")],
+      ["Updated", r => esc(fmtDate(r.updatedAt || r.createdAt))]
+    ],
+    fields: [
+      { name: "title", label: "Document title", required: true, span: 2 },
+      { name: "documentType", label: "Document type" },
+      { name: "status", label: "Status", type: "select", options: ["Draft","Active","Superseded","Archived","Legal Hold"] },
+      { name: "classification", label: "Classification", type: "select", options: ["INTERNAL","CONFIDENTIAL","SENSITIVE","RESTRICTED","HIGHLY_RESTRICTED"] },
+      { name: "ownerEmployeeId", label: "Owner employee ID" },
+      { name: "externalUrl", label: "External document URL", span: 2 },
+      { name: "description", label: "Description", type: "textarea", span: 2 }
+    ]
+  },
+  communications: {
+    title: "Communications",
+    subtitle: "Organization announcements, operational notices, and targeted internal messages.",
+    collection: "announcements",
+    prefix: "ANN",
+    counter: "announcements",
+    view: "communications.view",
+    manage: "communications.manage",
+    createLabel: "New announcement",
+    singular: "announcement",
+    columns: [
+      ["Announcement", r => cell(r.title || "Announcement", r.announcementId)],
+      ["Audience", r => esc(r.audience || "All Employees")],
+      ["Priority", r => statusBadge(r.priority || "Normal")],
+      ["Status", r => statusBadge(r.status || "Published")],
+      ["Author", r => esc(r.authorEmployeeId || "—")],
+      ["Created", r => esc(fmtDate(r.createdAt))]
+    ],
+    fields: [
+      { name: "title", label: "Announcement title", required: true, span: 2 },
+      { name: "audience", label: "Audience", type: "select", options: ["All Employees","Managers","Executives","Department","Location"] },
+      { name: "audienceValue", label: "Department / location (if applicable)" },
+      { name: "priority", label: "Priority", type: "select", options: ["Normal","Important","Urgent","Critical"] },
+      { name: "status", label: "Status", type: "select", options: ["Draft","Published","Expired"] },
+      { name: "body", label: "Message", type: "textarea", span: 2, required: true }
+    ]
+  },
+  workflows: {
+    title: "Workflows",
+    subtitle: "Cross-module process definitions for approvals, assignments, and operational handoffs.",
+    collection: "workflows",
+    prefix: "WFL",
+    counter: "workflows",
+    view: "workflow.view",
+    manage: "workflow.manage",
+    createLabel: "New workflow",
+    singular: "workflow",
+    columns: [
+      ["Workflow", r => cell(r.name || "Workflow", r.workflowId)],
+      ["Trigger", r => esc(r.trigger || "Manual")],
+      ["Status", r => statusBadge(r.status || "Draft")],
+      ["Owner", r => esc(r.ownerEmployeeId || "—")],
+      ["Version", r => esc(r.version || "1")],
+      ["Updated", r => esc(fmtDate(r.updatedAt || r.createdAt))]
+    ],
+    fields: [
+      { name: "name", label: "Workflow name", required: true, span: 2 },
+      { name: "trigger", label: "Trigger", type: "select", options: ["Manual","Record Created","Status Changed","Approval Completed","Date Reached"] },
+      { name: "status", label: "Status", type: "select", options: ["Draft","Active","Paused","Retired"] },
+      { name: "ownerEmployeeId", label: "Owner employee ID" },
+      { name: "version", label: "Version", type: "number", defaultValue: "1" },
+      { name: "description", label: "Purpose", type: "textarea", span: 2 },
+      { name: "stepsSummary", label: "Steps summary", type: "textarea", span: 2 }
+    ]
+  }
+};
+
+function cell(primary, secondary = "") {
+  return `<div class="primary-cell">${esc(primary)}</div>${secondary ? `<div class="secondary">${esc(secondary)}</div>` : ""}`;
+}
+
+function money(value) {
+  const n = Number(value || 0);
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+}
+
+function asMillis(value) {
+  try {
+    return value?.toMillis ? value.toMillis() : new Date(value || 0).getTime();
+  } catch {
+    return 0;
+  }
+}
+
+function fieldHtml(field, value = "") {
+  const required = field.required ? "required" : "";
+  const span = field.span === 2 ? " span-2" : "";
+  const safe = value ?? field.defaultValue ?? "";
+  if (field.type === "select") {
+    return `<div class="field${span}"><label>${esc(field.label)}</label><select class="select" name="${esc(field.name)}" ${required}>
+      ${field.options.map(o => `<option value="${esc(o)}" ${String(safe) === String(o) ? "selected" : ""}>${esc(o)}</option>`).join("")}
+    </select></div>`;
+  }
+  if (field.type === "textarea") {
+    return `<div class="field${span}"><label>${esc(field.label)}</label><textarea class="textarea" name="${esc(field.name)}" ${required}>${esc(safe)}</textarea></div>`;
+  }
+  return `<div class="field${span}"><label>${esc(field.label)}</label><input class="input" name="${esc(field.name)}" type="${esc(field.type || "text")}" value="${esc(safe)}" ${required} /></div>`;
+}
+
+function collectFields(fd, fields) {
+  const out = {};
+  for (const field of fields) {
+    let value = String(fd.get(field.name) ?? "").trim();
+    if (field.type === "number") value = value === "" ? 0 : Number(value);
+    out[field.name] = value;
+  }
+  return out;
+}
+
+export function createGeneration2(ctx) {
+  const {
+    state,
+    hasPermission,
+    nextId,
+    audit,
+    safeCollection,
+    pageHeader,
+    renderPage,
+    toast,
+    openModal,
+    firebaseMessage
+  } = ctx;
+
+  async function recordsForAccess(config, ownerField = null, selfPermission = null) {
+    if (hasPermission(config.view)) {
+      return safeCollection(config.collection, 150);
+    }
+
+    if (ownerField && (!selfPermission || hasPermission(selfPermission))) {
+      const snap = await getDocs(query(collection(db, config.collection), where(ownerField, "==", state.user.uid), limit(150)));
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a,b) => asMillis(b.createdAt) - asMillis(a.createdAt));
+    }
+
+    return [];
+  }
+
+  async function renderRegistry(target, key) {
+    const config = MODULES[key];
+    const records = await recordsForAccess(config);
+    const canManage = hasPermission(config.manage);
+
+    target.innerHTML = `
+      <div class="page">
+        ${pageHeader(config.title, config.subtitle, canManage ? `<button class="btn btn-primary" data-create> ${esc(config.createLabel)} </button>` : "")}
+        <section class="card">
+          <div class="card-head"><div><h2>${esc(config.title)} registry</h2><p>${records.length} record${records.length === 1 ? "" : "s"} visible</p></div></div>
+          ${records.length ? `
+            <div class="table-wrap"><table class="table">
+              <thead><tr>${config.columns.map(c => `<th>${esc(c[0])}</th>`).join("")}</tr></thead>
+              <tbody>${records.map(record => `<tr data-record="${esc(record.id)}" style="cursor:pointer">${config.columns.map(c => `<td>${c[1](record)}</td>`).join("")}</tr>`).join("")}</tbody>
+            </table></div>
+          ` : `<div class="empty"><strong>No ${esc(config.title.toLowerCase())} yet</strong><p>${canManage ? "Create the first record to begin." : "No records are currently visible to your account."}</p></div>`}
+        </section>
+      </div>
+    `;
+
+    target.querySelector("[data-create]")?.addEventListener("click", () => editRegistryRecord(config));
+    target.querySelectorAll("[data-record]").forEach(row => {
+      row.addEventListener("click", () => {
+        const record = records.find(r => r.id === row.dataset.record);
+        editRegistryRecord(config, record, !canManage);
+      });
+    });
+  }
+
+  function editRegistryRecord(config, record = null, readOnly = false) {
+    const editing = Boolean(record);
+    openModal({
+      title: `${readOnly ? "View" : editing ? "Edit" : "Create"} ${config.singular}`,
+      submitLabel: readOnly ? "Close" : editing ? "Save changes" : config.createLabel,
+      width: "780px",
+      body: `
+        ${editing ? `<div class="record-identity"><span>${esc(record[config.counter.slice(0,-1) + "Id"] || record[config.singular + "Id"] || "")}</span><strong>${esc(record.title || record.name || config.title)}</strong></div>` : ""}
+        <div class="form-grid">${config.fields.map(f => fieldHtml(f, record?.[f.name])).join("")}</div>
+        ${readOnly ? '<div class="notice"><div><strong>Read-only access</strong>Your current authorization allows viewing this record but not modifying it.</div></div>' : ""}
+      `,
+      onSubmit: async (fd) => {
+        if (readOnly) return true;
+        try {
+          const data = collectFields(fd, config.fields);
+          if (editing) {
+            await updateDoc(doc(db, config.collection, record.id), {
+              ...data,
+              updatedAt: serverTimestamp(),
+              updatedBy: state.user.uid
+            });
+            await audit(`${config.singular.toUpperCase()}_UPDATED`, config.singular, record.id);
+            toast(`${config.title.slice(0,-1)} updated`, "Changes have been saved.");
+          } else {
+            const humanId = await nextId(config.counter, config.prefix);
+            const humanField = config.singular === "announcement"
+              ? "announcementId"
+              : config.singular + "Id";
+            const ref = doc(collection(db, config.collection));
+            await setDoc(ref, {
+              ...data,
+              [humanField]: humanId,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+              createdBy: state.user.uid,
+              updatedBy: state.user.uid
+            });
+            await audit(`${config.singular.toUpperCase()}_CREATED`, config.singular, ref.id, { humanId });
+            toast(`${config.title.slice(0,-1)} created`, humanId);
+          }
+          await renderPage();
+          return true;
+        } catch (error) {
+          toast("Operation failed", firebaseMessage(error));
+          return false;
+        }
+      }
+    });
+
+    if (readOnly) {
+      const form = document.querySelector("#modal-root form");
+      form?.querySelectorAll("input,select,textarea").forEach(el => el.disabled = true);
+      const submit = form?.querySelector('button[type="submit"]');
+      if (submit) submit.textContent = "Close";
+    }
+  }
+
+  async function renderHR(target) {
+    const canHR = hasPermission("hr.view");
+    const leaveSnap = canHR
+      ? await safeCollection("leaveRequests", 100)
+      : await getDocs(query(collection(db, "leaveRequests"), where("requesterUid", "==", state.user.uid), limit(100)))
+          .then(s => s.docs.map(d => ({ id:d.id, ...d.data() })).sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt)));
+    const reviews = canHR ? await safeCollection("performanceReviews", 60) : [];
+    const discipline = canHR ? await safeCollection("disciplinaryActions", 60) : [];
+
+    target.innerHTML = `
+      <div class="page">
+        ${pageHeader("HR Operations", "Leave, performance, employee relations, and personnel operations.", '<button class="btn btn-primary" data-leave>Request leave</button>' + (hasPermission("hr.manage") ? '<button class="btn" data-review>New performance review</button><button class="btn" data-discipline>Record action</button>' : ""))}
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-label">Leave requests</div><div class="kpi-value">${leaveSnap.length ?? 0}</div><div class="kpi-meta">${canHR ? "Organization-visible queue" : "Your requests"}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Performance reviews</div><div class="kpi-value">${reviews.length}</div><div class="kpi-meta">Recent review records</div></div>
+          <div class="kpi-card"><div class="kpi-label">Employee relations</div><div class="kpi-value">${discipline.length}</div><div class="kpi-meta">Controlled personnel actions</div></div>
+          <div class="kpi-card"><div class="kpi-label">Your employee ID</div><div class="kpi-value kpi-small">${esc(state.employee?.employeeId || "—")}</div><div class="kpi-meta">Citadel personnel identity</div></div>
+        </div>
+        <div class="grid-2">
+          <section class="card">
+            <div class="card-head"><div><h2>Leave queue</h2><p>Time-off requests and decisions</p></div></div>
+            ${leaveSnap.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Status</th><th>Submitted</th></tr></thead><tbody>
+              ${leaveSnap.map(r=>`<tr><td>${esc(r.requesterEmployeeId || "—")}</td><td class="primary-cell">${esc(r.leaveType || "Leave")}</td><td>${esc(r.startDate || "—")} → ${esc(r.endDate || "—")}</td><td>${statusBadge(r.status || "Pending")}</td><td>${esc(fmtDate(r.createdAt))}</td></tr>`).join("")}
+            </tbody></table></div>` : '<div class="empty"><strong>No leave requests</strong><p>Leave requests will appear here.</p></div>'}
+          </section>
+          <section class="card">
+            <div class="card-head"><div><h2>Personnel controls</h2><p>Generation 2 HR capabilities</p></div></div>
+            <div class="list">
+              <div class="list-row"><div class="grow"><strong>Performance management</strong><span>Formal reviews with rating, period, reviewer, and narrative.</span></div>${canHR ? '<span class="badge success">Available</span>' : '<span class="badge">Restricted</span>'}</div>
+              <div class="list-row"><div class="grow"><strong>Employee relations</strong><span>Controlled disciplinary and corrective-action records.</span></div>${canHR ? '<span class="badge success">Available</span>' : '<span class="badge">Restricted</span>'}</div>
+              <div class="list-row"><div class="grow"><strong>Leave self-service</strong><span>Employees can submit requests without broad HR data access.</span></div><span class="badge success">Available</span></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    `;
+
+    target.querySelector("[data-leave]")?.addEventListener("click", leaveModal);
+    target.querySelector("[data-review]")?.addEventListener("click", reviewModal);
+    target.querySelector("[data-discipline]")?.addEventListener("click", disciplineModal);
+  }
+
+  function leaveModal() {
+    openModal({
+      title: "Request leave",
+      submitLabel: "Submit request",
+      body: `
+        <div class="form-grid">
+          <div class="field"><label>Leave type</label><select class="select" name="leaveType"><option>Vacation</option><option>Sick</option><option>Personal</option><option>Bereavement</option><option>Medical</option><option>Other</option></select></div>
+          <div class="field"><label>Start date</label><input class="input" name="startDate" type="date" required /></div>
+          <div class="field"><label>End date</label><input class="input" name="endDate" type="date" required /></div>
+          <div class="field span-2"><label>Reason / notes</label><textarea class="textarea" name="reason"></textarea></div>
+        </div>
+      `,
+      onSubmit: async fd => {
+        try {
+          const leaveId = await nextId("leaveRequests", "LVE");
+          const ref = doc(collection(db, "leaveRequests"));
+          await setDoc(ref, {
+            leaveId,
+            requesterUid: state.user.uid,
+            requesterEmployeeId: state.employee?.employeeId || null,
+            leaveType: String(fd.get("leaveType") || "Other"),
+            startDate: String(fd.get("startDate") || ""),
+            endDate: String(fd.get("endDate") || ""),
+            reason: String(fd.get("reason") || "").trim(),
+            status: "Pending",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+          });
+          await audit("LEAVE_REQUESTED","leaveRequest",ref.id,{leaveId});
+          toast("Leave submitted", leaveId);
+          await renderPage();
+          return true;
+        } catch (error) {
+          toast("Request failed", firebaseMessage(error));
+          return false;
+        }
+      }
+    });
+  }
+
+  function reviewModal() {
+    openModal({
+      title: "New performance review",
+      submitLabel: "Create review",
+      body: `
+        <div class="form-grid">
+          <div class="field"><label>Employee ID</label><input class="input" name="employeeId" required /></div>
+          <div class="field"><label>Review period</label><input class="input" name="reviewPeriod" placeholder="2026 Annual" required /></div>
+          <div class="field"><label>Overall rating</label><select class="select" name="rating"><option>Exceptional</option><option>Exceeds Expectations</option><option selected>Meets Expectations</option><option>Needs Improvement</option><option>Unsatisfactory</option></select></div>
+          <div class="field"><label>Status</label><select class="select" name="status"><option>Draft</option><option>Manager Review</option><option>Delivered</option><option>Final</option></select></div>
+          <div class="field span-2"><label>Summary</label><textarea class="textarea" name="summary" required></textarea></div>
+          <div class="field span-2"><label>Goals / next steps</label><textarea class="textarea" name="goals"></textarea></div>
+        </div>
+      `,
+      onSubmit: async fd => createSimple("performanceReviews","performanceReviews","PRF","PERFORMANCE_REVIEW_CREATED",{
+        employeeId:String(fd.get("employeeId")||"").trim().toUpperCase(),
+        reviewPeriod:String(fd.get("reviewPeriod")||"").trim(),
+        rating:String(fd.get("rating")||"Meets Expectations"),
+        status:String(fd.get("status")||"Draft"),
+        summary:String(fd.get("summary")||"").trim(),
+        goals:String(fd.get("goals")||"").trim(),
+        reviewerUid:state.user.uid,
+        reviewerEmployeeId:state.employee?.employeeId||null
+      })
+    });
+  }
+
+  function disciplineModal() {
+    openModal({
+      title: "Record employee relations action",
+      submitLabel: "Record action",
+      body: `
+        <div class="form-grid">
+          <div class="field"><label>Employee ID</label><input class="input" name="employeeId" required /></div>
+          <div class="field"><label>Action type</label><select class="select" name="actionType"><option>Coaching</option><option>Verbal Warning</option><option>Written Warning</option><option>Final Warning</option><option>Suspension</option><option>Investigation Referral</option></select></div>
+          <div class="field"><label>Status</label><select class="select" name="status"><option>Open</option><option>Final</option><option>Appealed</option><option>Closed</option></select></div>
+          <div class="field"><label>Effective date</label><input class="input" name="effectiveDate" type="date" /></div>
+          <div class="field span-2"><label>Reason</label><textarea class="textarea" name="reason" required></textarea></div>
+          <div class="field span-2"><label>Expectations / corrective plan</label><textarea class="textarea" name="correctivePlan"></textarea></div>
+        </div>
+      `,
+      onSubmit: async fd => createSimple("disciplinaryActions","disciplinaryActions","DSA","DISCIPLINARY_ACTION_CREATED",{
+        employeeId:String(fd.get("employeeId")||"").trim().toUpperCase(),
+        actionType:String(fd.get("actionType")||"Written Warning"),
+        status:String(fd.get("status")||"Open"),
+        effectiveDate:String(fd.get("effectiveDate")||""),
+        reason:String(fd.get("reason")||"").trim(),
+        correctivePlan:String(fd.get("correctivePlan")||"").trim(),
+        createdByEmployeeId:state.employee?.employeeId||null
+      })
+    });
+  }
+
+  async function createSimple(collectionName, counter, prefix, auditAction, data) {
+    try {
+      const humanId = await nextId(counter,prefix);
+      const ref = doc(collection(db,collectionName));
+      await setDoc(ref,{
+        ...data,
+        recordId: humanId,
+        createdAt:serverTimestamp(),
+        updatedAt:serverTimestamp(),
+        createdBy:state.user.uid
+      });
+      await audit(auditAction,collectionName,ref.id,{humanId});
+      toast("Record created",humanId);
+      await renderPage();
+      return true;
+    } catch(error) {
+      toast("Operation failed",firebaseMessage(error));
+      return false;
+    }
+  }
+
+  async function renderTraining(target) {
+    const canAll = hasPermission("training.view");
+    const records = canAll
+      ? await safeCollection("trainingRecords",100)
+      : await getDocs(query(collection(db,"trainingRecords"),where("employeeUid","==",state.user.uid),limit(100))).then(s=>s.docs.map(d=>({id:d.id,...d.data()})));
+    target.innerHTML = `
+      <div class="page">
+        ${pageHeader("Training", "Required learning, certifications, completions, and renewal tracking.", hasPermission("training.manage") ? '<button class="btn btn-primary" data-training>Add training record</button>' : "")}
+        <section class="card">
+          <div class="card-head"><div><h2>Training records</h2><p>${records.length} visible record${records.length===1?"":"s"}</p></div></div>
+          ${records.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Course / Certification</th><th>Employee</th><th>Status</th><th>Completed</th><th>Expires</th></tr></thead><tbody>
+          ${records.map(r=>`<tr><td>${cell(r.title||"Training",r.recordId)}</td><td>${esc(r.employeeId||"—")}</td><td>${statusBadge(r.status||"Assigned")}</td><td>${esc(r.completedDate||"—")}</td><td>${esc(r.expirationDate||"—")}</td></tr>`).join("")}
+          </tbody></table></div>` : '<div class="empty"><strong>No training records</strong><p>Assigned and completed training will appear here.</p></div>'}
+        </section>
+      </div>
+    `;
+    target.querySelector("[data-training]")?.addEventListener("click",()=>{
+      openModal({
+        title:"Add training record",
+        submitLabel:"Add record",
+        body:`<div class="form-grid">
+          <div class="field"><label>Employee ID</label><input class="input" name="employeeId" required /></div>
+          <div class="field"><label>Course / certification</label><input class="input" name="title" required /></div>
+          <div class="field"><label>Status</label><select class="select" name="status"><option>Assigned</option><option>In Progress</option><option>Completed</option><option>Expired</option><option>Waived</option></select></div>
+          <div class="field"><label>Completed date</label><input class="input" name="completedDate" type="date" /></div>
+          <div class="field"><label>Expiration date</label><input class="input" name="expirationDate" type="date" /></div>
+          <div class="field"><label>Score / result</label><input class="input" name="result" /></div>
+        </div>`,
+        onSubmit:fd=>createSimple("trainingRecords","trainingRecords","TRN","TRAINING_RECORD_CREATED",{
+          employeeId:String(fd.get("employeeId")||"").trim().toUpperCase(),
+          title:String(fd.get("title")||"").trim(),
+          status:String(fd.get("status")||"Assigned"),
+          completedDate:String(fd.get("completedDate")||""),
+          expirationDate:String(fd.get("expirationDate")||""),
+          result:String(fd.get("result")||"")
+        })
+      });
+    });
+  }
+
+  async function renderService(target) {
+    const canViewAll = hasPermission("service.view");
+    const records = canViewAll
+      ? await safeCollection("serviceTickets",120)
+      : await getDocs(query(collection(db,"serviceTickets"),where("requesterUid","==",state.user.uid),limit(120)))
+          .then(s=>s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt)));
+
+    target.innerHTML = `
+      <div class="page">
+        ${pageHeader("Service Desk", "Internal IT, HR, Facilities, Security, Access, and corporate service requests.", hasPermission("service.create") ? '<button class="btn btn-primary" data-ticket>New request</button>' : "")}
+        <section class="card">
+          <div class="card-head"><div><h2>${canViewAll ? "Service queue" : "My requests"}</h2><p>${records.length} ticket${records.length===1?"":"s"}</p></div></div>
+          ${records.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Request</th><th>Catalog</th><th>Priority</th><th>Status</th><th>Requester</th><th>Updated</th></tr></thead><tbody>
+            ${records.map(r=>`<tr><td>${cell(r.title||"Request",r.ticketId)}</td><td>${esc(r.catalog||"General")}</td><td>${statusBadge(r.priority||"Normal")}</td><td>${statusBadge(r.status||"New")}</td><td>${esc(r.requesterEmployeeId||"—")}</td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`).join("")}
+          </tbody></table></div>` : '<div class="empty"><strong>No service requests</strong><p>Use New Request for IT, HR, Facilities, Security, Access, Procurement, or other internal support.</p></div>'}
+        </section>
+      </div>
+    `;
+    target.querySelector("[data-ticket]")?.addEventListener("click",ticketModal);
+  }
+
+  function ticketModal() {
+    openModal({
+      title:"New service request",
+      submitLabel:"Submit request",
+      body:`<div class="form-grid">
+        <div class="field span-2"><label>Request title</label><input class="input" name="title" required /></div>
+        <div class="field"><label>Service catalog</label><select class="select" name="catalog"><option>IT Support</option><option>HR Request</option><option>Payroll Question</option><option>Facilities</option><option>Security</option><option>Access Request</option><option>Procurement</option><option>Legal</option><option>Other</option></select></div>
+        <div class="field"><label>Priority</label><select class="select" name="priority"><option>Low</option><option selected>Normal</option><option>High</option><option>Critical</option></select></div>
+        <div class="field span-2"><label>Description</label><textarea class="textarea" name="description" required></textarea></div>
+      </div>`,
+      onSubmit:async fd=>{
+        try{
+          const ticketId=await nextId("serviceTickets","TKT");
+          const ref=doc(collection(db,"serviceTickets"));
+          await setDoc(ref,{
+            ticketId,
+            title:String(fd.get("title")||"").trim(),
+            catalog:String(fd.get("catalog")||"Other"),
+            priority:String(fd.get("priority")||"Normal"),
+            description:String(fd.get("description")||"").trim(),
+            status:"New",
+            requesterUid:state.user.uid,
+            requesterEmployeeId:state.employee?.employeeId||null,
+            assignedEmployeeId:null,
+            createdAt:serverTimestamp(),
+            updatedAt:serverTimestamp()
+          });
+          await audit("SERVICE_TICKET_CREATED","serviceTicket",ref.id,{ticketId});
+          toast("Request submitted",ticketId);
+          await renderPage();
+          return true;
+        }catch(error){toast("Request failed",firebaseMessage(error));return false;}
+      }
+    });
+  }
+
+  async function renderProcurement(target) {
+    const canViewAll=hasPermission("procurement.view");
+    const requests=canViewAll
+      ? await safeCollection("purchaseRequests",120)
+      : await getDocs(query(collection(db,"purchaseRequests"),where("requesterUid","==",state.user.uid),limit(120))).then(s=>s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt)));
+    target.innerHTML=`
+      <div class="page">
+        ${pageHeader("Procurement","Purchase requests, vendor sourcing, approvals, and acquisition tracking.",hasPermission("procurement.request")?'<button class="btn btn-primary" data-purchase>Purchase request</button>':"")}
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-label">Visible requests</div><div class="kpi-value">${requests.length}</div><div class="kpi-meta">Current request register</div></div>
+          <div class="kpi-card"><div class="kpi-label">Pending</div><div class="kpi-value">${requests.filter(r=>["Submitted","Pending Approval","Sourcing"].includes(r.status)).length}</div><div class="kpi-meta">Still in procurement flow</div></div>
+          <div class="kpi-card"><div class="kpi-label">Approved</div><div class="kpi-value">${requests.filter(r=>r.status==="Approved").length}</div><div class="kpi-meta">Authorized purchases</div></div>
+          <div class="kpi-card"><div class="kpi-label">Requested value</div><div class="kpi-value kpi-small">${money(requests.reduce((s,r)=>s+Number(r.estimatedCost||0),0))}</div><div class="kpi-meta">Visible request total</div></div>
+        </div>
+        <section class="card"><div class="card-head"><div><h2>${canViewAll?"Purchase request queue":"My purchase requests"}</h2><p>Generation 2 procurement lifecycle</p></div></div>
+        ${requests.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Request</th><th>Department</th><th>Cost</th><th>Vendor</th><th>Status</th><th>Requester</th></tr></thead><tbody>
+          ${requests.map(r=>`<tr><td>${cell(r.title||"Purchase",r.purchaseRequestId)}</td><td>${esc(r.department||"—")}</td><td>${money(r.estimatedCost)}</td><td>${esc(r.preferredVendor||"Open sourcing")}</td><td>${statusBadge(r.status||"Submitted")}</td><td>${esc(r.requesterEmployeeId||"—")}</td></tr>`).join("")}
+        </tbody></table></div>`:'<div class="empty"><strong>No purchase requests</strong><p>Submit a purchase request to begin the procurement workflow.</p></div>'}</section>
+      </div>`;
+    target.querySelector("[data-purchase]")?.addEventListener("click",purchaseModal);
+  }
+
+  function purchaseModal(){
+    openModal({
+      title:"Purchase request",
+      submitLabel:"Submit request",
+      body:`<div class="form-grid">
+        <div class="field span-2"><label>Purchase title</label><input class="input" name="title" required /></div>
+        <div class="field"><label>Department</label><input class="input" name="department" value="${esc(state.employee?.departmentName||"")}" /></div>
+        <div class="field"><label>Estimated cost</label><input class="input" type="number" min="0" step=".01" name="estimatedCost" required /></div>
+        <div class="field"><label>Preferred vendor</label><input class="input" name="preferredVendor" /></div>
+        <div class="field"><label>Needed by</label><input class="input" name="neededBy" type="date" /></div>
+        <div class="field span-2"><label>Business justification</label><textarea class="textarea" name="justification" required></textarea></div>
+      </div>`,
+      onSubmit:async fd=>{
+        try{
+          const purchaseRequestId=await nextId("purchaseRequests","PRQ");
+          const ref=doc(collection(db,"purchaseRequests"));
+          await setDoc(ref,{
+            purchaseRequestId,
+            title:String(fd.get("title")||"").trim(),
+            department:String(fd.get("department")||"").trim(),
+            estimatedCost:Number(fd.get("estimatedCost")||0),
+            preferredVendor:String(fd.get("preferredVendor")||"").trim(),
+            neededBy:String(fd.get("neededBy")||""),
+            justification:String(fd.get("justification")||"").trim(),
+            status:"Submitted",
+            requesterUid:state.user.uid,
+            requesterEmployeeId:state.employee?.employeeId||null,
+            createdAt:serverTimestamp(),
+            updatedAt:serverTimestamp()
+          });
+          await audit("PURCHASE_REQUEST_CREATED","purchaseRequest",ref.id,{purchaseRequestId});
+          toast("Purchase request submitted",purchaseRequestId);
+          await renderPage();
+          return true;
+        }catch(error){toast("Request failed",firebaseMessage(error));return false;}
+      }
+    });
+  }
+
+  async function renderFinance(target){
+    const canViewAll=hasPermission("finance.view");
+    const expenses=canViewAll
+      ? await safeCollection("expenses",100)
+      : await getDocs(query(collection(db,"expenses"),where("requesterUid","==",state.user.uid),limit(100))).then(s=>s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt)));
+    const invoices=canViewAll?await safeCollection("invoices",100):[];
+    target.innerHTML=`
+      <div class="page">
+        ${pageHeader("Finance","Expense operations, invoice register, payment status, and financial oversight.",hasPermission("finance.expense.create")?'<button class="btn btn-primary" data-expense>New expense</button>':"")}
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-label">Expenses</div><div class="kpi-value">${expenses.length}</div><div class="kpi-meta">${canViewAll?"Visible organization records":"Your submissions"}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Expense total</div><div class="kpi-value kpi-small">${money(expenses.reduce((s,r)=>s+Number(r.amount||0),0))}</div><div class="kpi-meta">Visible gross amount</div></div>
+          <div class="kpi-card"><div class="kpi-label">Invoices</div><div class="kpi-value">${invoices.length}</div><div class="kpi-meta">Accounts payable / receivable registry</div></div>
+          <div class="kpi-card"><div class="kpi-label">Open invoice value</div><div class="kpi-value kpi-small">${money(invoices.filter(r=>!["Paid","Void"].includes(r.status)).reduce((s,r)=>s+Number(r.amount||0),0))}</div><div class="kpi-meta">Visible outstanding amount</div></div>
+        </div>
+        <div class="grid-2">
+          <section class="card"><div class="card-head"><div><h2>Expenses</h2><p>Reimbursements and company spending</p></div></div>
+          ${expenses.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Expense</th><th>Amount</th><th>Category</th><th>Status</th><th>Submitted</th></tr></thead><tbody>${expenses.map(r=>`<tr><td>${cell(r.description||"Expense",r.expenseId)}</td><td>${money(r.amount)}</td><td>${esc(r.category||"General")}</td><td>${statusBadge(r.status||"Submitted")}</td><td>${esc(fmtDate(r.createdAt))}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty"><strong>No expenses</strong><p>Expense submissions will appear here.</p></div>'}</section>
+          <section class="card"><div class="card-head"><div><h2>Invoices</h2><p>Finance-controlled invoice register</p></div>${hasPermission("finance.manage")?'<button class="btn btn-sm" data-invoice>New invoice</button>':""}</div>
+          ${invoices.length?`<div class="list">${invoices.slice(0,12).map(r=>`<div class="list-row"><div class="grow"><strong>${esc(r.invoiceId||r.description||"Invoice")}</strong><span>${esc(r.counterparty||"—")} · ${money(r.amount)}</span></div>${statusBadge(r.status||"Open")}</div>`).join("")}</div>`:'<div class="empty"><strong>No invoices</strong><p>Finance can create invoice records here.</p></div>'}</section>
+        </div>
+      </div>`;
+    target.querySelector("[data-expense]")?.addEventListener("click",expenseModal);
+    target.querySelector("[data-invoice]")?.addEventListener("click",invoiceModal);
+  }
+
+  function expenseModal(){
+    openModal({
+      title:"Submit expense",
+      submitLabel:"Submit expense",
+      body:`<div class="form-grid">
+        <div class="field span-2"><label>Description</label><input class="input" name="description" required /></div>
+        <div class="field"><label>Amount</label><input class="input" type="number" min="0" step=".01" name="amount" required /></div>
+        <div class="field"><label>Category</label><select class="select" name="category"><option>Travel</option><option>Meals</option><option>Equipment</option><option>Software</option><option>Supplies</option><option>Professional Services</option><option>Other</option></select></div>
+        <div class="field"><label>Expense date</label><input class="input" type="date" name="expenseDate" /></div>
+        <div class="field"><label>Cost center</label><input class="input" name="costCenter" /></div>
+        <div class="field span-2"><label>Business purpose</label><textarea class="textarea" name="businessPurpose" required></textarea></div>
+      </div>`,
+      onSubmit:async fd=>{
+        try{
+          const expenseId=await nextId("expenses","EXP");
+          const ref=doc(collection(db,"expenses"));
+          await setDoc(ref,{
+            expenseId,
+            description:String(fd.get("description")||"").trim(),
+            amount:Number(fd.get("amount")||0),
+            category:String(fd.get("category")||"Other"),
+            expenseDate:String(fd.get("expenseDate")||""),
+            costCenter:String(fd.get("costCenter")||"").trim(),
+            businessPurpose:String(fd.get("businessPurpose")||"").trim(),
+            status:"Submitted",
+            requesterUid:state.user.uid,
+            requesterEmployeeId:state.employee?.employeeId||null,
+            createdAt:serverTimestamp(),
+            updatedAt:serverTimestamp()
+          });
+          await audit("EXPENSE_SUBMITTED","expense",ref.id,{expenseId});
+          toast("Expense submitted",expenseId);
+          await renderPage();
+          return true;
+        }catch(error){toast("Expense failed",firebaseMessage(error));return false;}
+      }
+    });
+  }
+
+  function invoiceModal(){
+    openModal({
+      title:"Create invoice record",
+      submitLabel:"Create invoice",
+      body:`<div class="form-grid">
+        <div class="field"><label>Counterparty</label><input class="input" name="counterparty" required /></div>
+        <div class="field"><label>Direction</label><select class="select" name="direction"><option>Payable</option><option>Receivable</option></select></div>
+        <div class="field"><label>Amount</label><input class="input" type="number" min="0" step=".01" name="amount" required /></div>
+        <div class="field"><label>Status</label><select class="select" name="status"><option>Open</option><option>Pending Approval</option><option>Scheduled</option><option>Paid</option><option>Void</option></select></div>
+        <div class="field"><label>Due date</label><input class="input" type="date" name="dueDate" /></div>
+        <div class="field"><label>Reference</label><input class="input" name="reference" /></div>
+        <div class="field span-2"><label>Description</label><textarea class="textarea" name="description"></textarea></div>
+      </div>`,
+      onSubmit:async fd=>{
+        try{
+          const invoiceId=await nextId("invoices","INV");
+          const ref=doc(collection(db,"invoices"));
+          await setDoc(ref,{
+            invoiceId,
+            counterparty:String(fd.get("counterparty")||"").trim(),
+            direction:String(fd.get("direction")||"Payable"),
+            amount:Number(fd.get("amount")||0),
+            status:String(fd.get("status")||"Open"),
+            dueDate:String(fd.get("dueDate")||""),
+            reference:String(fd.get("reference")||"").trim(),
+            description:String(fd.get("description")||"").trim(),
+            createdAt:serverTimestamp(),
+            updatedAt:serverTimestamp(),
+            createdBy:state.user.uid
+          });
+          await audit("INVOICE_CREATED","invoice",ref.id,{invoiceId});
+          toast("Invoice created",invoiceId);
+          await renderPage();
+          return true;
+        }catch(error){toast("Invoice failed",firebaseMessage(error));return false;}
+      }
+    });
+  }
+
+  async function renderCompliance(target){
+    const policies=await safeCollection("policies",100);
+    const findings=await safeCollection("complianceFindings",100);
+    target.innerHTML=`
+      <div class="page">
+        ${pageHeader("Compliance","Policies, acknowledgements, findings, remediation, and governance tracking.",hasPermission("compliance.manage")?'<button class="btn btn-primary" data-policy>New policy</button><button class="btn" data-finding>New finding</button>':"")}
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-label">Policies</div><div class="kpi-value">${policies.length}</div><div class="kpi-meta">Controlled policy register</div></div>
+          <div class="kpi-card"><div class="kpi-label">Open findings</div><div class="kpi-value">${findings.filter(f=>!["Closed","Remediated"].includes(f.status)).length}</div><div class="kpi-meta">Requires remediation</div></div>
+          <div class="kpi-card"><div class="kpi-label">Critical findings</div><div class="kpi-value">${findings.filter(f=>f.severity==="Critical"&&!["Closed","Remediated"].includes(f.status)).length}</div><div class="kpi-meta">Executive attention</div></div>
+          <div class="kpi-card"><div class="kpi-label">Governance</div><div class="kpi-value kpi-small">Active</div><div class="kpi-meta">Audit-ready records</div></div>
+        </div>
+        <div class="grid-2">
+          <section class="card"><div class="card-head"><div><h2>Policies</h2><p>Corporate policy register</p></div></div>
+            ${policies.length?`<div class="list">${policies.slice(0,15).map(p=>`<div class="list-row"><div class="grow"><strong>${esc(p.title||"Policy")}</strong><span>${esc(p.policyId||"—")} · Owner ${esc(p.ownerEmployeeId||"—")}</span></div>${statusBadge(p.status||"Active")}</div>`).join("")}</div>`:'<div class="empty"><strong>No policies</strong><p>Create the first controlled policy record.</p></div>'}
+          </section>
+          <section class="card"><div class="card-head"><div><h2>Compliance findings</h2><p>Issues, owners, and remediation status</p></div></div>
+            ${findings.length?`<div class="list">${findings.slice(0,15).map(f=>`<div class="list-row"><div class="grow"><strong>${esc(f.title||"Finding")}</strong><span>${esc(f.recordId||"—")} · ${esc(f.ownerEmployeeId||"Unassigned")}</span></div>${statusBadge(f.severity||"Moderate")}</div>`).join("")}</div>`:'<div class="empty"><strong>No findings</strong><p>Compliance findings and remediation items will appear here.</p></div>'}
+          </section>
+        </div>
+      </div>`;
+    target.querySelector("[data-policy]")?.addEventListener("click",policyModal);
+    target.querySelector("[data-finding]")?.addEventListener("click",findingModal);
+  }
+
+  function policyModal(){
+    openModal({
+      title:"New policy",
+      submitLabel:"Create policy",
+      body:`<div class="form-grid">
+        <div class="field span-2"><label>Policy title</label><input class="input" name="title" required /></div>
+        <div class="field"><label>Category</label><input class="input" name="category" /></div>
+        <div class="field"><label>Status</label><select class="select" name="status"><option>Draft</option><option>Active</option><option>Under Review</option><option>Retired</option></select></div>
+        <div class="field"><label>Owner employee ID</label><input class="input" name="ownerEmployeeId" /></div>
+        <div class="field"><label>Review date</label><input class="input" type="date" name="reviewDate" /></div>
+        <div class="field span-2"><label>Policy summary</label><textarea class="textarea" name="summary" required></textarea></div>
+      </div>`,
+      onSubmit:async fd=>{
+        try{
+          const policyId=await nextId("policies","POL");
+          const ref=doc(collection(db,"policies"));
+          await setDoc(ref,{
+            policyId,
+            title:String(fd.get("title")||"").trim(),
+            category:String(fd.get("category")||"").trim(),
+            status:String(fd.get("status")||"Draft"),
+            ownerEmployeeId:String(fd.get("ownerEmployeeId")||"").trim().toUpperCase(),
+            reviewDate:String(fd.get("reviewDate")||""),
+            summary:String(fd.get("summary")||"").trim(),
+            version:1,
+            createdAt:serverTimestamp(),
+            updatedAt:serverTimestamp(),
+            createdBy:state.user.uid
+          });
+          await audit("POLICY_CREATED","policy",ref.id,{policyId});
+          toast("Policy created",policyId);
+          await renderPage();
+          return true;
+        }catch(error){toast("Policy failed",firebaseMessage(error));return false;}
+      }
+    });
+  }
+
+  function findingModal(){
+    openModal({
+      title:"New compliance finding",
+      submitLabel:"Create finding",
+      body:`<div class="form-grid">
+        <div class="field span-2"><label>Finding title</label><input class="input" name="title" required /></div>
+        <div class="field"><label>Severity</label><select class="select" name="severity"><option>Low</option><option>Moderate</option><option>High</option><option>Critical</option></select></div>
+        <div class="field"><label>Status</label><select class="select" name="status"><option>Open</option><option>Remediation</option><option>Verification</option><option>Remediated</option><option>Closed</option></select></div>
+        <div class="field"><label>Owner employee ID</label><input class="input" name="ownerEmployeeId" /></div>
+        <div class="field"><label>Due date</label><input class="input" type="date" name="dueDate" /></div>
+        <div class="field span-2"><label>Finding details</label><textarea class="textarea" name="details" required></textarea></div>
+        <div class="field span-2"><label>Remediation plan</label><textarea class="textarea" name="remediationPlan"></textarea></div>
+      </div>`,
+      onSubmit:fd=>createSimple("complianceFindings","complianceFindings","FND","COMPLIANCE_FINDING_CREATED",{
+        title:String(fd.get("title")||"").trim(),
+        severity:String(fd.get("severity")||"Moderate"),
+        status:String(fd.get("status")||"Open"),
+        ownerEmployeeId:String(fd.get("ownerEmployeeId")||"").trim().toUpperCase(),
+        dueDate:String(fd.get("dueDate")||""),
+        details:String(fd.get("details")||"").trim(),
+        remediationPlan:String(fd.get("remediationPlan")||"").trim()
+      })
+    });
+  }
+
+  const renderers = {
+    hr: renderHR,
+    training: renderTraining,
+    service: renderService,
+    assets: target => renderRegistry(target,"assets"),
+    procurement: renderProcurement,
+    vendors: target => renderRegistry(target,"vendors"),
+    contracts: target => renderRegistry(target,"contracts"),
+    finance: renderFinance,
+    projects: target => renderRegistry(target,"projects"),
+    documents: target => renderRegistry(target,"documents"),
+    communications: target => renderRegistry(target,"communications"),
+    compliance: renderCompliance,
+    workflows: target => renderRegistry(target,"workflows")
+  };
+
+  return { renderers };
+}
