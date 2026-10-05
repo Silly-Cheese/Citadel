@@ -267,29 +267,75 @@ function employeeSelect(refs, name, selected = "", { required = false, label = "
   </select>`;
 }
 
+function permissionFriendlyName(permission) {
+  const parts = String(permission).split(".");
+  const action = parts.slice(1).join(" ");
+  const replacements = {
+    "view": "View",
+    "create": "Create",
+    "edit": "Edit",
+    "edit contact": "Edit contact information",
+    "view financial": "View financial information",
+    "restrict": "Restrict records",
+    "merge": "Merge records",
+    "assign": "Assign",
+    "close": "Close",
+    "manage": "Manage",
+    "request leave": "Request leave",
+    "expense create": "Submit expenses",
+    "self": "View own records",
+    "run": "Run workflows",
+    "run manage": "Manage workflow runs",
+    "executive": "Executive analytics",
+    "customize": "Customize",
+    "alerts view": "View alerts",
+    "alerts manage": "Manage alerts",
+    "temporary manage": "Manage temporary access",
+    "health view": "View system health",
+    "export": "Export",
+    "organization manage": "Manage organization"
+  };
+  return replacements[action] || action.split(" ").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
 function permissionPicker(selectedPermissions = []) {
   const selected = new Set(selectedPermissions);
-  return PERMISSION_GROUP_LABELS.map(([prefix, label]) => {
+  return PERMISSION_GROUP_LABELS.map(([prefix, label], index) => {
     const perms = ALL_PERMISSION_OPTIONS.filter(p => p.startsWith(prefix));
     if (!perms.length) return "";
-    return `<section class="permission-group" data-permission-group>
-      <div class="permission-group-head"><strong>${esc(label)}</strong><span>${perms.length} permissions</span></div>
-      <div class="permission-grid">${perms.map(p => `
-        <label class="permission-option" data-permission-option="${esc(p.toLowerCase())}">
-          <input type="checkbox" name="permissions" value="${esc(p)}" ${selected.has(p) ? "checked" : ""}/>
-          <span><strong>${esc(p)}</strong></span>
+    const selectedCount = perms.filter(p => selected.has(p)).length;
+    return `<details class="permission-group" data-permission-group ${index < 3 || selectedCount ? "open" : ""}>
+      <summary class="permission-group-head">
+        <div class="permission-group-title">
+          <span class="permission-group-icon">${esc(label.charAt(0))}</span>
+          <span><strong>${esc(label)}</strong><small><span data-group-selected>${selectedCount}</span> of ${perms.length} selected</small></span>
+        </div>
+        <span class="permission-chevron">⌄</span>
+      </summary>
+      <div class="permission-group-actions">
+        <button class="text-action" type="button" data-select-group>Select all</button>
+        <button class="text-action" type="button" data-clear-group>Clear</button>
+      </div>
+      <div class="permission-list">${perms.map(p => `
+        <label class="permission-row" data-permission-option="${esc((permissionFriendlyName(p) + " " + p).toLowerCase())}">
+          <span class="permission-check"><input type="checkbox" name="permissions" value="${esc(p)}" ${selected.has(p) ? "checked" : ""}/><i></i></span>
+          <span class="permission-copy">
+            <strong>${esc(permissionFriendlyName(p))}</strong>
+            <small>${esc(p)}</small>
+          </span>
         </label>
       `).join("")}</div>
-    </section>`;
+    </details>`;
   }).join("");
 }
 
 function rolePicker(selectedRoles = []) {
   const selected = new Set(selectedRoles);
-  return `<div class="permission-grid">${ROLE_OPTIONS.map(([value,label]) => `
-    <label class="permission-option">
+  return `<div class="role-grid">${ROLE_OPTIONS.map(([value,label]) => `
+    <label class="role-card">
       <input type="checkbox" name="roles" value="${esc(value)}" ${selected.has(value) ? "checked" : ""}/>
-      <span><strong>${esc(label)}</strong><small>${esc(value)}</small></span>
+      <span class="role-card-check">✓</span>
+      <span><strong>${esc(label)}</strong><small>${esc(value.replaceAll("_", " "))}</small></span>
     </label>
   `).join("")}</div>`;
 }
@@ -1382,11 +1428,21 @@ function manageAccessProfile(profile) {
       <div class="form-grid">
         <div class="field"><label>Clearance level</label><select class="select" name="clearanceLevel">${Array.from({length:11},(_,i)=>`<option value="${i}" ${Number(profile.clearanceLevel||0)===i?"selected":""}>C${i}</option>`).join("")}</select></div>
         <div class="field"><label>Account authorization</label><select class="select" name="active"><option value="true" ${profile.active!==false?"selected":""}>Active</option><option value="false" ${profile.active===false?"selected":""}>Suspended</option></select></div>
-        <div class="field span-2"><label>Roles</label>${rolePicker(profile.roles || [])}<div class="field-help">Choose one or more roles. No role codes need to be typed.</div></div>
-        <div class="field span-2"><label>Explicit permissions</label>
-          <input class="input" type="search" data-permission-search placeholder="Search permissions…" style="margin-bottom:10px" />
+        <div class="field span-2">
+          <div class="field-heading"><div><label>Roles</label><span>Broad job-function labels for this account.</span></div></div>
+          ${rolePicker(profile.roles || [])}
+        </div>
+        <div class="field span-2 permission-field">
+          <div class="field-heading">
+            <div><label>Explicit permissions</label><span>Choose exactly what this account can do. Clearance and permissions are evaluated separately.</span></div>
+            <div class="selection-count"><strong data-permission-count>0</strong><span>selected</span></div>
+          </div>
+          <div class="permission-toolbar">
+            <div class="permission-search-wrap"><span>⌕</span><input class="input" type="search" data-permission-search placeholder="Search by action or permission name…" /></div>
+            <button class="btn btn-sm" type="button" data-expand-permissions>Expand all</button>
+            <button class="btn btn-sm btn-ghost" type="button" data-collapse-permissions>Collapse all</button>
+          </div>
           <div class="permission-picker" data-permission-picker>${permissionPicker(profile.permissions || [])}</div>
-          <div class="field-help">Select permissions by category. Clearance alone never grants a permission.</div>
         </div>
       </div>
     `,
@@ -1444,17 +1500,50 @@ function manageAccessProfile(profile) {
     }
   });
 
-  const permissionSearch = document.querySelector("[data-permission-search]");
+  const modalRoot = document.getElementById("modal-root");
+  const permissionSearch = modalRoot.querySelector("[data-permission-search]");
+  const permissionCount = modalRoot.querySelector("[data-permission-count]");
+
+  const refreshPermissionCounts = () => {
+    const allChecked = modalRoot.querySelectorAll('input[name="permissions"]:checked');
+    if (permissionCount) permissionCount.textContent = allChecked.length;
+    modalRoot.querySelectorAll("[data-permission-group]").forEach(group => {
+      const checked = group.querySelectorAll('input[name="permissions"]:checked').length;
+      const selectedLabel = group.querySelector("[data-group-selected]");
+      if (selectedLabel) selectedLabel.textContent = checked;
+      group.classList.toggle("has-selection", checked > 0);
+    });
+  };
+
   permissionSearch?.addEventListener("input", () => {
     const term = permissionSearch.value.trim().toLowerCase();
-    document.querySelectorAll("[data-permission-option]").forEach((el) => {
-      el.style.display = !term || el.dataset.permissionOption.includes(term) ? "" : "none";
+    modalRoot.querySelectorAll("[data-permission-option]").forEach((el) => {
+      const visible = !term || el.dataset.permissionOption.includes(term);
+      el.hidden = !visible;
     });
-    document.querySelectorAll("[data-permission-group]").forEach((group) => {
-      const visible = [...group.querySelectorAll("[data-permission-option]")].some(el => el.style.display !== "none");
-      group.style.display = visible ? "" : "none";
+    modalRoot.querySelectorAll("[data-permission-group]").forEach((group) => {
+      const visible = [...group.querySelectorAll("[data-permission-option]")].some(el => !el.hidden);
+      group.hidden = !visible;
+      if (term && visible) group.open = true;
     });
   });
+
+  modalRoot.querySelector("[data-expand-permissions]")?.addEventListener("click", () => {
+    modalRoot.querySelectorAll("[data-permission-group]").forEach(group => group.open = true);
+  });
+  modalRoot.querySelector("[data-collapse-permissions]")?.addEventListener("click", () => {
+    modalRoot.querySelectorAll("[data-permission-group]").forEach(group => group.open = false);
+  });
+  modalRoot.querySelectorAll("[data-select-group]").forEach(button => button.addEventListener("click", () => {
+    button.closest("[data-permission-group]").querySelectorAll('input[name="permissions"]').forEach(input => input.checked = true);
+    refreshPermissionCounts();
+  }));
+  modalRoot.querySelectorAll("[data-clear-group]").forEach(button => button.addEventListener("click", () => {
+    button.closest("[data-permission-group]").querySelectorAll('input[name="permissions"]').forEach(input => input.checked = false);
+    refreshPermissionCounts();
+  }));
+  modalRoot.querySelectorAll('input[name="permissions"]').forEach(input => input.addEventListener("change", refreshPermissionCounts));
+  refreshPermissionCounts();
 
   if (isProtectedOther) {
     const form = document.querySelector("#modal-root form");
