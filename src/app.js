@@ -855,6 +855,12 @@ async function openCustomer(customer) {
   } catch (error) {
     console.warn("Customer 360 related records unavailable", error);
   }
+  const openCustomerCases = relatedCases.filter(r => !["Resolved","Closed"].includes(r.status));
+  const criticalFlags = flags.filter(f => f.active !== false && ["High","Critical"].includes(f.severity));
+  const escalatedCases = openCustomerCases.filter(r => r.status === "Escalated" || r.priority === "Critical");
+  const customerRiskScore = Math.min(100, criticalFlags.length * 25 + escalatedCases.length * 20 + Math.min(30, openCustomerCases.length * 5));
+  const customerRiskLevel = customerRiskScore >= 70 ? "Critical" : customerRiskScore >= 40 ? "High" : customerRiskScore >= 20 ? "Moderate" : "Low";
+
   await audit("CUSTOMER_VIEWED", "customer", customer.id, { customerId: customer.customerId || null });
   openModal({
     title: customerDisplayName(customer),
@@ -866,6 +872,7 @@ async function openCustomer(customer) {
         <div class="security-box"><span>Customer ID</span><strong>${esc(customer.customerId || "—")}</strong></div>
         <div class="security-box"><span>Status</span><strong>${esc(customer.status || "Active")}</strong></div>
         <div class="security-box"><span>Classification</span><strong>${esc(customer.classification || "STANDARD")}</strong></div>
+        <div class="security-box"><span>Customer risk</span><strong>${esc(customerRiskLevel)} · ${customerRiskScore}/100</strong></div>
       </div>
       <div class="form-grid">
         <div class="field"><label>First name</label><input class="input" name="firstName" value="${esc(customer.firstName || "")}" /></div>
@@ -997,15 +1004,20 @@ async function renderCases(target) {
       <section class="card">
         <div class="card-head"><div><h2>Case queue</h2><p>${cases.length} recent case${cases.length === 1 ? "" : "s"}</p></div></div>
         ${cases.length ? `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Case</th><th>Priority</th><th>Status</th><th>Customer</th><th>Owner</th><th>Created</th></tr></thead>
-          <tbody>${cases.map((c) => `<tr>
-            <td><div class="primary-cell">${esc(c.title || "Untitled case")}</div><div class="secondary">${esc(c.caseId || "—")}</div></td>
-            <td>${statusBadge(c.priority || "Normal")}</td>
-            <td>${statusBadge(c.status || "Open")}</td>
-            <td>${esc(c.customerId || "—")}</td>
-            <td>${esc(c.assignedEmployeeId || "Unassigned")}</td>
-            <td>${esc(fmtDate(c.createdAt))}</td>
-          </tr>`).join("")}</tbody>
+          <thead><tr><th>Case</th><th>Priority</th><th>Status</th><th>Customer</th><th>Owner</th><th>SLA</th><th>Created</th></tr></thead>
+          <tbody>${cases.map((c) => {
+            const slaBreached = c.slaDueAt && c.slaDueAt?.toDate ? c.slaDueAt.toDate().getTime() < Date.now() : (c.slaDueAt ? new Date(c.slaDueAt).getTime() < Date.now() : false);
+            const closed = ["Resolved","Closed"].includes(c.status);
+            return `<tr>
+              <td><div class="primary-cell">${esc(c.title || "Untitled case")}</div><div class="secondary">${esc(c.caseId || "—")}</div></td>
+              <td>${statusBadge(c.priority || "Normal")}</td>
+              <td>${statusBadge(c.status || "Open")}</td>
+              <td>${esc(c.customerId || "—")}</td>
+              <td>${esc(c.assignedEmployeeId || "Unassigned")}</td>
+              <td>${c.slaDueAt ? statusBadge(!closed && slaBreached ? "Breached" : closed ? "Complete" : "On Track") : '<span class="badge">Not set</span>'}</td>
+              <td>${esc(fmtDate(c.createdAt))}</td>
+            </tr>`;
+          }).join("")}</tbody>
         </table></div>` : '<div class="empty"><strong>No cases yet</strong><p>Create a case to begin operational case management.</p></div>'}
       </section>
     </div>
@@ -1024,6 +1036,7 @@ function newCaseModal() {
         <div class="field"><label>Category</label><input class="input" name="category" placeholder="Billing, Service, General…" /></div>
         <div class="field"><label>Priority</label><select class="select" name="priority"><option>Normal</option><option>High</option><option>Critical</option><option>Low</option></select></div>
         <div class="field"><label>Status</label><select class="select" name="status"><option>New</option><option>Open</option><option>In Progress</option><option>Pending Customer</option><option>Pending Internal</option><option>Escalated</option></select></div>
+        <div class="field"><label>SLA target</label><select class="select" name="slaHours"><option value="4">4 hours</option><option value="8">8 hours</option><option value="24" selected>24 hours</option><option value="48">48 hours</option><option value="72">72 hours</option></select></div>
         <div class="field span-2"><label>Description</label><textarea class="textarea" name="description" required></textarea></div>
       </div>
     `,
@@ -1039,6 +1052,8 @@ function newCaseModal() {
           priority: String(fd.get("priority") || "Normal"),
           status: String(fd.get("status") || "New"),
           description: String(fd.get("description") || "").trim(),
+          slaHours: Number(fd.get("slaHours") || 24),
+          slaDueAt: new Date(Date.now() + Number(fd.get("slaHours") || 24) * 3600000),
           assignedEmployeeId: state.employee?.employeeId || null,
           assignedUid: state.user.uid,
           createdBy: state.user.uid,
