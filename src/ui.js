@@ -1,4 +1,4 @@
-import { esc } from "./utils.js?v=20261005-r3";
+import { esc } from "./utils.js?v=20261005-r4";
 
 export function toast(title, message = "") {
   const root = document.getElementById("toast-root");
