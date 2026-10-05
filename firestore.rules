@@ -83,6 +83,22 @@ service cloud.firestore {
         && data.minimumClearance == classificationLevel(data.classification);
     }
 
+    function canReadCustomerRelated(customerRecordId) {
+      return hasPermission("customer.view")
+        && exists(/databases/$(database)/documents/customers/$(customerRecordId))
+        && (
+          isSystemOwner()
+          || classifiedRecordAllowed(
+            get(/databases/$(database)/documents/customers/$(customerRecordId)).data
+          )
+        );
+    }
+
+    function canEditCustomerRelated(customerRecordId) {
+      return hasPermission("customer.edit")
+        && canReadCustomerRelated(customerRecordId);
+    }
+
     match /system/bootstrap {
       allow read: if signedIn();
 
@@ -226,25 +242,35 @@ service cloud.firestore {
     }
 
     match /customerNotes/{noteId} {
-      allow read: if hasPermission("customer.view");
-      allow create: if hasPermission("customer.edit")
-        && request.resource.data.createdBy == uid();
+      allow read: if canReadCustomerRelated(resource.data.customerRecordId);
+
+      allow create: if request.resource.data.createdBy == uid()
+        && canEditCustomerRelated(request.resource.data.customerRecordId);
+
       allow update, delete: if false;
     }
 
     match /customerInteractions/{interactionId} {
-      allow read: if hasPermission("customer.view");
-      allow create: if hasPermission("customer.edit")
-        && request.resource.data.createdBy == uid();
+      allow read: if canReadCustomerRelated(resource.data.customerRecordId);
+
+      allow create: if request.resource.data.createdBy == uid()
+        && canEditCustomerRelated(request.resource.data.customerRecordId);
+
       allow update, delete: if false;
     }
 
     match /customerFlags/{flagId} {
-      allow read: if hasPermission("customer.view");
-      allow create: if hasPermission("customer.edit")
-        && request.resource.data.createdBy == uid();
-      allow update: if hasPermission("customer.restrict")
-        || hasPermission("customer.edit");
+      allow read: if canReadCustomerRelated(resource.data.customerRecordId);
+
+      allow create: if request.resource.data.createdBy == uid()
+        && canEditCustomerRelated(request.resource.data.customerRecordId);
+
+      allow update: if canEditCustomerRelated(resource.data.customerRecordId)
+        && (
+          hasPermission("customer.restrict")
+          || hasPermission("customer.edit")
+        );
+
       allow delete: if false;
     }
 
