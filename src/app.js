@@ -1374,7 +1374,26 @@ async function openCustomer(customer) {
       try {
         const firstName = String(fd.get("firstName") || "").trim();
         const lastName = String(fd.get("lastName") || "").trim();
-        await updateDoc(doc(db, "customers", customer.id), {
+        const classification = String(fd.get("classification") || "STANDARD");
+        const canManageLock = hasPermanentPermission("customer.lock.manage");
+        const previousLocked = customer.recordLocked === true;
+        const recordLocked = canManageLock ? String(fd.get("recordLocked") || "false") === "true" : previousLocked;
+        const requestedLockLevel = canManageLock ? Number(fd.get("lockMinimumClearance") || 0) : Number(customer.lockMinimumClearance || 0);
+        const permanentClearance = Number(state.profile?.clearanceLevel || 0);
+        if (recordLocked && !state.profile?.isSystemOwner && requestedLockLevel > permanentClearance) {
+          toast("Lock not allowed", `Your permanent clearance is C${permanentClearance}; you cannot create a C${requestedLockLevel} customer lock.`);
+          return false;
+        }
+        const lockMinimumClearance = recordLocked ? Math.max(0,Math.min(10,requestedLockLevel)) : 0;
+        const accessLevel = customerRequiredAccessLevel(classification,recordLocked,lockMinimumClearance);
+        const nextLockReasonCode = recordLocked ? (canManageLock ? String(fd.get("lockReasonCode") || "Other") : String(customer.lockReasonCode || "")) : "";
+        const nextLockReasonDetail = recordLocked ? (canManageLock ? String(fd.get("lockReasonDetail") || "").trim() : String(customer.lockReasonDetail || "")) : "";
+        const lockChanged = recordLocked !== previousLocked
+          || (recordLocked && Number(customer.lockMinimumClearance || 0) !== lockMinimumClearance)
+          || (recordLocked && String(customer.lockReasonCode || "") !== nextLockReasonCode)
+          || (recordLocked && String(customer.lockReasonDetail || "") !== nextLockReasonDetail);
+
+        const customerUpdate = {
           firstName,
           lastName,
           displayName: `${firstName} ${lastName}`.trim(),
@@ -1382,11 +1401,51 @@ async function openCustomer(customer) {
           email: String(fd.get("email") || "").trim().toLowerCase(),
           phone: String(fd.get("phone") || "").trim(),
           status: String(fd.get("status") || "Active"),
-          classification: String(fd.get("classification") || "STANDARD"),
-          minimumClearance: classificationLevel(String(fd.get("classification") || "STANDARD")),
+          classification,
+          minimumClearance: classificationLevel(classification),
+          recordLocked,
+          lockMinimumClearance,
+          lockReasonCode: nextLockReasonCode,
+          lockReasonDetail: nextLockReasonDetail,
+          accessLevel,
           updatedAt: serverTimestamp(),
           updatedBy: state.user.uid
-        });
+        };
+
+        if (canManageLock && lockChanged) {
+          if (recordLocked) {
+            customerUpdate.lockedByUid = state.user.uid;
+            customerUpdate.lockedByEmployeeId = state.employee?.employeeId || null;
+            customerUpdate.lockedAt = serverTimestamp();
+            customerUpdate.unlockedByUid = null;
+            customerUpdate.unlockedByEmployeeId = null;
+            customerUpdate.unlockedAt = null;
+          } else {
+            customerUpdate.unlockedByUid = state.user.uid;
+            customerUpdate.unlockedByEmployeeId = state.employee?.employeeId || null;
+            customerUpdate.unlockedAt = serverTimestamp();
+            customerUpdate.lockedByUid = null;
+            customerUpdate.lockedByEmployeeId = null;
+            customerUpdate.lockedAt = null;
+          }
+        }
+
+        await updateDoc(doc(db, "customers", customer.id), customerUpdate);
+
+        if (canManageLock && lockChanged) {
+          await audit(
+            recordLocked ? (previousLocked ? "CUSTOMER_LOCK_UPDATED" : "CUSTOMER_RECORD_LOCKED") : "CUSTOMER_RECORD_UNLOCKED",
+            "customer",
+            customer.id,
+            {
+              customerId: customer.customerId || null,
+              previousLockLevel: Number(customer.lockMinimumClearance || 0),
+              lockMinimumClearance,
+              accessLevel,
+              reason: recordLocked ? nextLockReasonCode : "Unlocked"
+            }
+          );
+        }
 
         const newNote = String(fd.get("newInternalNote") || "").trim();
         if (newNote) {
