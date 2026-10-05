@@ -557,7 +557,7 @@ export function createGeneration2(ctx) {
           <section class="card">
             <div class="card-head"><div><h2>Leave queue</h2><p>Time-off requests and decisions</p></div></div>
             ${leaveSnap.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Status</th><th>Submitted</th></tr></thead><tbody>
-              ${leaveSnap.map(r=>`<tr><td>${esc(r.requesterEmployeeId || "—")}</td><td class="primary-cell">${esc(r.leaveType || "Leave")}</td><td>${esc(r.startDate || "—")} → ${esc(r.endDate || "—")}</td><td>${statusBadge(r.status || "Pending")}</td><td>${esc(fmtDate(r.createdAt))}</td></tr>`).join("")}
+              ${leaveSnap.map(r=>`<tr data-leave-record="${esc(r.id)}" style="${hasPermission("hr.manage") ? "cursor:pointer" : ""}"><td>${esc(r.requesterEmployeeId || "—")}</td><td class="primary-cell">${esc(r.leaveType || "Leave")}</td><td>${esc(r.startDate || "—")} → ${esc(r.endDate || "—")}</td><td>${statusBadge(r.status || "Pending")}</td><td>${esc(fmtDate(r.createdAt))}</td></tr>`).join("")}
             </tbody></table></div>` : '<div class="empty"><strong>No leave requests</strong><p>Leave requests will appear here.</p></div>'}
           </section>
           <section class="card">
@@ -575,6 +575,42 @@ export function createGeneration2(ctx) {
     target.querySelector("[data-leave]")?.addEventListener("click", leaveModal);
     target.querySelector("[data-review]")?.addEventListener("click", reviewModal);
     target.querySelector("[data-discipline]")?.addEventListener("click", disciplineModal);
+    if (hasPermission("hr.manage")) {
+      target.querySelectorAll("[data-leave-record]").forEach(row => row.addEventListener("click", () => {
+        const record = leaveSnap.find(r => r.id === row.dataset.leaveRecord);
+        if (record) manageLeaveModal(record);
+      }));
+    }
+  }
+
+  function manageLeaveModal(record) {
+    openModal({
+      title: `Review leave · ${record.leaveId || record.requesterEmployeeId || ""}`,
+      submitLabel: "Save decision",
+      body: `
+        <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.requesterEmployeeId || "Employee")}</strong>${esc(record.leaveType || "Leave")} · ${esc(record.startDate || "—")} → ${esc(record.endDate || "—")}</div></div>
+        <div class="form-grid">
+          <div class="field"><label>Status</label><select class="select" name="status">${["Pending","Approved","Denied","Cancelled"].map(v=>`<option ${record.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
+          <div class="field"><label>Decision note</label><input class="input" name="decisionNote" value="${esc(record.decisionNote || "")}" /></div>
+        </div>
+      `,
+      onSubmit: async fd => {
+        try {
+          await updateDoc(doc(db,"leaveRequests",record.id),{
+            status:String(fd.get("status")||"Pending"),
+            decisionNote:String(fd.get("decisionNote")||"").trim(),
+            decidedByUid:state.user.uid,
+            decidedByEmployeeId:state.employee?.employeeId||null,
+            decidedAt:serverTimestamp(),
+            updatedAt:serverTimestamp()
+          });
+          await audit("LEAVE_REQUEST_DECIDED","leaveRequest",record.id,{leaveId:record.leaveId||null});
+          toast("Leave request updated",record.leaveId||"");
+          await renderPage();
+          return true;
+        } catch(error) { toast("Decision failed",firebaseMessage(error)); return false; }
+      }
+    });
   }
 
   function leaveModal() {
@@ -744,12 +780,50 @@ export function createGeneration2(ctx) {
         <section class="card">
           <div class="card-head"><div><h2>${canViewAll ? "Service queue" : "My requests"}</h2><p>${records.length} ticket${records.length===1?"":"s"}</p></div></div>
           ${records.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Request</th><th>Catalog</th><th>Priority</th><th>Status</th><th>Requester</th><th>Updated</th></tr></thead><tbody>
-            ${records.map(r=>`<tr><td>${cell(r.title||"Request",r.ticketId)}</td><td>${esc(r.catalog||"General")}</td><td>${statusBadge(r.priority||"Normal")}</td><td>${statusBadge(r.status||"New")}</td><td>${esc(r.requesterEmployeeId||"—")}</td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`).join("")}
+            ${records.map(r=>`<tr data-service-record="${esc(r.id)}" style="${hasPermission("service.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Request",r.ticketId)}</td><td>${esc(r.catalog||"General")}</td><td>${statusBadge(r.priority||"Normal")}</td><td>${statusBadge(r.status||"New")}</td><td>${esc(r.requesterEmployeeId||"—")}</td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`).join("")}
           </tbody></table></div>` : '<div class="empty"><strong>No service requests</strong><p>Use New Request for IT, HR, Facilities, Security, Access, Procurement, or other internal support.</p></div>'}
         </section>
       </div>
     `;
     target.querySelector("[data-ticket]")?.addEventListener("click",ticketModal);
+    if (hasPermission("service.manage")) {
+      target.querySelectorAll("[data-service-record]").forEach(row => row.addEventListener("click", () => {
+        const record=records.find(r=>r.id===row.dataset.serviceRecord);
+        if(record) manageServiceTicket(record);
+      }));
+    }
+  }
+
+  function manageServiceTicket(record) {
+    openModal({
+      title:`Manage ticket · ${record.ticketId || ""}`,
+      submitLabel:"Save ticket",
+      body:`
+        <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.title||"Service request")}</strong>${esc(record.description||"")}</div></div>
+        <div class="form-grid">
+          <div class="field"><label>Status</label><select class="select" name="status">${["New","Assigned","In Progress","Pending Requester","Pending Internal","Resolved","Closed","Cancelled"].map(v=>`<option ${record.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
+          <div class="field"><label>Assigned employee ID</label><input class="input" name="assignedEmployeeId" value="${esc(record.assignedEmployeeId||"")}" /></div>
+          <div class="field"><label>Priority</label><select class="select" name="priority">${["Low","Normal","High","Critical"].map(v=>`<option ${record.priority===v?"selected":""}>${v}</option>`).join("")}</select></div>
+          <div class="field span-2"><label>Resolution / internal update</label><textarea class="textarea" name="resolution">${esc(record.resolution||"")}</textarea></div>
+        </div>
+      `,
+      onSubmit:async fd=>{
+        try{
+          await updateDoc(doc(db,"serviceTickets",record.id),{
+            status:String(fd.get("status")||"New"),
+            assignedEmployeeId:String(fd.get("assignedEmployeeId")||"").trim().toUpperCase()||null,
+            priority:String(fd.get("priority")||"Normal"),
+            resolution:String(fd.get("resolution")||"").trim(),
+            updatedAt:serverTimestamp(),
+            updatedBy:state.user.uid
+          });
+          await audit("SERVICE_TICKET_UPDATED","serviceTicket",record.id,{ticketId:record.ticketId||null});
+          toast("Ticket updated",record.ticketId||"");
+          await renderPage();
+          return true;
+        }catch(error){toast("Ticket update failed",firebaseMessage(error));return false;}
+      }
+    });
   }
 
   function ticketModal() {
@@ -804,10 +878,49 @@ export function createGeneration2(ctx) {
         </div>
         <section class="card"><div class="card-head"><div><h2>${canViewAll?"Purchase request queue":"My purchase requests"}</h2><p>Generation 2 procurement lifecycle</p></div></div>
         ${requests.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Request</th><th>Department</th><th>Cost</th><th>Vendor</th><th>Status</th><th>Requester</th></tr></thead><tbody>
-          ${requests.map(r=>`<tr><td>${cell(r.title||"Purchase",r.purchaseRequestId)}</td><td>${esc(r.department||"—")}</td><td>${money(r.estimatedCost)}</td><td>${esc(r.preferredVendor||"Open sourcing")}</td><td>${statusBadge(r.status||"Submitted")}</td><td>${esc(r.requesterEmployeeId||"—")}</td></tr>`).join("")}
+          ${requests.map(r=>`<tr data-purchase-record="${esc(r.id)}" style="${hasPermission("procurement.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Purchase",r.purchaseRequestId)}</td><td>${esc(r.department||"—")}</td><td>${money(r.estimatedCost)}</td><td>${esc(r.preferredVendor||"Open sourcing")}</td><td>${statusBadge(r.status||"Submitted")}</td><td>${esc(r.requesterEmployeeId||"—")}</td></tr>`).join("")}
         </tbody></table></div>`:'<div class="empty"><strong>No purchase requests</strong><p>Submit a purchase request to begin the procurement workflow.</p></div>'}</section>
       </div>`;
     target.querySelector("[data-purchase]")?.addEventListener("click",purchaseModal);
+    if (hasPermission("procurement.manage")) {
+      target.querySelectorAll("[data-purchase-record]").forEach(row=>row.addEventListener("click",()=>{
+        const record=requests.find(r=>r.id===row.dataset.purchaseRecord);
+        if(record) managePurchaseRequest(record);
+      }));
+    }
+  }
+
+  function managePurchaseRequest(record){
+    openModal({
+      title:`Manage purchase request · ${record.purchaseRequestId||""}`,
+      submitLabel:"Save request",
+      body:`
+        <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.title||"Purchase request")}</strong>${money(record.estimatedCost)} · ${esc(record.department||"No department")}</div></div>
+        <div class="form-grid">
+          <div class="field"><label>Status</label><select class="select" name="status">${["Submitted","Pending Approval","Approved","Denied","Sourcing","Ordered","Received","Closed","Cancelled"].map(v=>`<option ${record.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
+          <div class="field"><label>Selected vendor</label><input class="input" name="selectedVendor" value="${esc(record.selectedVendor||record.preferredVendor||"")}" /></div>
+          <div class="field"><label>PO / reference</label><input class="input" name="purchaseOrderRef" value="${esc(record.purchaseOrderRef||"")}" /></div>
+          <div class="field span-2"><label>Procurement notes</label><textarea class="textarea" name="procurementNotes">${esc(record.procurementNotes||"")}</textarea></div>
+        </div>
+      `,
+      onSubmit:async fd=>{
+        try{
+          await updateDoc(doc(db,"purchaseRequests",record.id),{
+            status:String(fd.get("status")||"Submitted"),
+            selectedVendor:String(fd.get("selectedVendor")||"").trim(),
+            purchaseOrderRef:String(fd.get("purchaseOrderRef")||"").trim(),
+            procurementNotes:String(fd.get("procurementNotes")||"").trim(),
+            reviewedByUid:state.user.uid,
+            reviewedByEmployeeId:state.employee?.employeeId||null,
+            updatedAt:serverTimestamp()
+          });
+          await audit("PURCHASE_REQUEST_UPDATED","purchaseRequest",record.id,{purchaseRequestId:record.purchaseRequestId||null});
+          toast("Purchase request updated",record.purchaseRequestId||"");
+          await renderPage();
+          return true;
+        }catch(error){toast("Update failed",firebaseMessage(error));return false;}
+      }
+    });
   }
 
   function purchaseModal(){
@@ -866,13 +979,49 @@ export function createGeneration2(ctx) {
         </div>
         <div class="grid-2">
           <section class="card"><div class="card-head"><div><h2>Expenses</h2><p>Reimbursements and company spending</p></div></div>
-          ${expenses.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Expense</th><th>Amount</th><th>Category</th><th>Status</th><th>Submitted</th></tr></thead><tbody>${expenses.map(r=>`<tr><td>${cell(r.description||"Expense",r.expenseId)}</td><td>${money(r.amount)}</td><td>${esc(r.category||"General")}</td><td>${statusBadge(r.status||"Submitted")}</td><td>${esc(fmtDate(r.createdAt))}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty"><strong>No expenses</strong><p>Expense submissions will appear here.</p></div>'}</section>
+          ${expenses.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Expense</th><th>Amount</th><th>Category</th><th>Status</th><th>Submitted</th></tr></thead><tbody>${expenses.map(r=>`<tr data-expense-record="${esc(r.id)}" style="${hasPermission("finance.manage") ? "cursor:pointer" : ""}"><td>${cell(r.description||"Expense",r.expenseId)}</td><td>${money(r.amount)}</td><td>${esc(r.category||"General")}</td><td>${statusBadge(r.status||"Submitted")}</td><td>${esc(fmtDate(r.createdAt))}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty"><strong>No expenses</strong><p>Expense submissions will appear here.</p></div>'}</section>
           <section class="card"><div class="card-head"><div><h2>Invoices</h2><p>Finance-controlled invoice register</p></div>${hasPermission("finance.manage")?'<button class="btn btn-sm" data-invoice>New invoice</button>':""}</div>
           ${invoices.length?`<div class="list">${invoices.slice(0,12).map(r=>`<div class="list-row"><div class="grow"><strong>${esc(r.invoiceId||r.description||"Invoice")}</strong><span>${esc(r.counterparty||"—")} · ${money(r.amount)}</span></div>${statusBadge(r.status||"Open")}</div>`).join("")}</div>`:'<div class="empty"><strong>No invoices</strong><p>Finance can create invoice records here.</p></div>'}</section>
         </div>
       </div>`;
     target.querySelector("[data-expense]")?.addEventListener("click",expenseModal);
     target.querySelector("[data-invoice]")?.addEventListener("click",invoiceModal);
+    if (hasPermission("finance.manage")) {
+      target.querySelectorAll("[data-expense-record]").forEach(row=>row.addEventListener("click",()=>{
+        const record=expenses.find(r=>r.id===row.dataset.expenseRecord);
+        if(record) manageExpense(record);
+      }));
+    }
+  }
+
+  function manageExpense(record){
+    openModal({
+      title:`Review expense · ${record.expenseId||""}`,
+      submitLabel:"Save decision",
+      body:`
+        <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.description||"Expense")}</strong>${money(record.amount)} · ${esc(record.requesterEmployeeId||"Employee")}</div></div>
+        <div class="form-grid">
+          <div class="field"><label>Status</label><select class="select" name="status">${["Submitted","Under Review","Approved","Denied","Scheduled","Paid","Cancelled"].map(v=>`<option ${record.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
+          <div class="field"><label>Finance note</label><input class="input" name="financeNote" value="${esc(record.financeNote||"")}" /></div>
+        </div>
+      `,
+      onSubmit:async fd=>{
+        try{
+          await updateDoc(doc(db,"expenses",record.id),{
+            status:String(fd.get("status")||"Submitted"),
+            financeNote:String(fd.get("financeNote")||"").trim(),
+            reviewedByUid:state.user.uid,
+            reviewedByEmployeeId:state.employee?.employeeId||null,
+            reviewedAt:serverTimestamp(),
+            updatedAt:serverTimestamp()
+          });
+          await audit("EXPENSE_REVIEWED","expense",record.id,{expenseId:record.expenseId||null});
+          toast("Expense updated",record.expenseId||"");
+          await renderPage();
+          return true;
+        }catch(error){toast("Expense update failed",firebaseMessage(error));return false;}
+      }
+    });
   }
 
   function expenseModal(){
