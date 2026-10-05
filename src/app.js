@@ -1000,7 +1000,8 @@ function approveAccountModal(request) {
             "procurement.request",
             "finance.expense.create",
             "communications.view",
-            "document.view"
+            "document.view",
+            "organization.view"
           ],
           isSystemOwner: false,
           protectedPrincipal: false,
