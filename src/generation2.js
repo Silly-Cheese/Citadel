@@ -446,6 +446,7 @@ export function createGeneration2(ctx) {
     hasPermission,
     effectiveClearance,
     classificationsForClearance,
+    customerAccessLevelsForClearance,
     nextId,
     audit,
     safeCollection,
@@ -474,7 +475,7 @@ export function createGeneration2(ctx) {
         try{
           const snap=await getDocs(query(
             collection(db,"customers"),
-            where("classification","in",classificationsForClearance()),
+            where("accessLevel","in",customerAccessLevelsForClearance()),
             limit(250)
           ));
           refs.customers=snap.docs
