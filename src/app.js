@@ -996,7 +996,7 @@ function approveAccountModal(request) {
             "employee.view",
             "service.create",
             "hr.request.leave",
-            "training.view",
+            "training.self",
             "procurement.request",
             "finance.expense.create",
             "communications.view",
