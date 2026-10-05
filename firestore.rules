@@ -271,7 +271,10 @@ service cloud.firestore {
         || (counterId == "expenses" && hasPermission("finance.expense.create"))
         || (counterId == "invoices" && hasPermission("finance.manage"))
         || (counterId == "policies" && hasPermission("compliance.manage"))
-        || (counterId == "complianceFindings" && hasPermission("compliance.manage"));
+        || (counterId == "complianceFindings" && hasPermission("compliance.manage"))
+        || (counterId == "departments" && hasPermission("organization.manage"))
+        || (counterId == "positions" && hasPermission("organization.manage"))
+        || (counterId == "locations" && hasPermission("organization.manage"));
     }
 
     match /counters/{counterId} {
