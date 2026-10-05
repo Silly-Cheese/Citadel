@@ -6,8 +6,12 @@ import {
   initializeTestEnvironment
 } from "@firebase/rules-unit-testing";
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
+  query,
+  where,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -97,6 +101,37 @@ test("unauthenticated users cannot read customer records", async () => {
   });
   const db = env.unauthenticatedContext().firestore();
   await assertFails(getDoc(doc(db, "customers", "customer1")));
+});
+
+test("Citadel customer clearance query is authorized", async () => {
+  await seedProfile("csrquery", {
+    employeeId: "EMP-CSRQUERY",
+    permissions: ["customer.view"],
+    clearanceLevel: 1
+  });
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, "customers", "standard"), {
+      customerId: "CUS-Q001",
+      classification: "STANDARD",
+      minimumClearance: 0
+    });
+    await setDoc(doc(db, "customers", "internal"), {
+      customerId: "CUS-Q002",
+      classification: "INTERNAL",
+      minimumClearance: 1
+    });
+    await setDoc(doc(db, "customers", "restricted"), {
+      customerId: "CUS-Q003",
+      classification: "RESTRICTED",
+      minimumClearance: 6
+    });
+  });
+
+  const db = env.authenticatedContext("csrquery").firestore();
+  const q = query(collection(db, "customers"), where("minimumClearance", "<=", 1));
+  const snap = await assertSucceeds(getDocs(q));
+  if (snap.size !== 2) throw new Error(`Expected 2 authorized customers, received ${snap.size}`);
 });
 
 test("customer clearance is enforced independently from customer.view", async () => {
