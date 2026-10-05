@@ -213,7 +213,9 @@ service cloud.firestore {
         && request.resource.data.primaryOwnerUid == uid();
 
       allow update: if isSystemOwner()
-        && request.resource.data.primaryOwnerUid == resource.data.primaryOwnerUid;
+        && request.resource.data.primaryOwnerUid == resource.data.primaryOwnerUid
+        && request.resource.data.primaryOwnerEmployeeId == resource.data.primaryOwnerEmployeeId
+        && doesNotChange(["createdAt"]);
 
       allow delete: if false;
     }
@@ -337,14 +339,18 @@ service cloud.firestore {
 
     match /registrationRequests/{userId} {
       allow read: if signedIn()
-        && (userId == uid() || hasPermission("system.manage"));
+        && (userId == uid() || hasPermanentPermission("system.manage"));
 
       allow create: if signedIn()
         && userId == uid()
         && request.resource.data.uid == uid()
         && request.resource.data.status == "pending";
 
-      allow update: if hasPermission("system.manage");
+      allow update: if hasPermanentPermission("system.manage")
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.requestedAt == resource.data.requestedAt;
+
       allow delete: if false;
     }
 
@@ -813,10 +819,22 @@ service cloud.firestore {
         || hasPermission("workflow.run");
 
       allow create: if hasPermission("workflow.run")
-        && request.resource.data.startedByUid == uid();
+        && request.resource.data.startedByUid == uid()
+        && request.resource.data.createdAt == request.time;
 
-      allow update: if hasPermission("workflow.run.manage")
-        || hasPermission("workflow.manage");
+      allow update: if (
+          hasPermission("workflow.run.manage")
+          || hasPermission("workflow.manage")
+        )
+        && doesNotChange([
+          "runId",
+          "workflowId",
+          "workflowRecordId",
+          "startedByUid",
+          "startedByEmployeeId",
+          "startedAt",
+          "createdAt"
+        ]);
 
       allow delete: if false;
     }
@@ -825,29 +843,47 @@ service cloud.firestore {
       allow read: if hasPermission("workflow.run")
         || hasPermission("workflow.manage");
 
-      allow create: if hasPermission("workflow.run");
+      allow create: if hasPermission("workflow.run")
+        && request.resource.data.runRecordId is string
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/workflowRuns/$(request.resource.data.runRecordId)).data.startedByUid == uid();
 
-      allow update: if hasPermission("workflow.run.manage")
-        || hasPermission("workflow.manage");
+      allow update: if (
+          hasPermission("workflow.run.manage")
+          || hasPermission("workflow.manage")
+        )
+        && doesNotChange(["runRecordId", "runId", "sequence", "createdAt"]);
 
       allow delete: if false;
     }
 
     match /departments/{recordId} {
       allow read: if activeAccount();
-      allow create, update: if hasPermission("organization.manage");
+      allow create: if hasPermanentPermission("organization.manage")
+        && request.resource.data.createdBy == uid()
+        && request.resource.data.createdAt == request.time;
+      allow update: if hasPermanentPermission("organization.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
     match /positions/{recordId} {
       allow read: if activeAccount();
-      allow create, update: if hasPermission("organization.manage");
+      allow create: if hasPermanentPermission("organization.manage")
+        && request.resource.data.createdBy == uid()
+        && request.resource.data.createdAt == request.time;
+      allow update: if hasPermanentPermission("organization.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
     match /locations/{recordId} {
       allow read: if activeAccount();
-      allow create, update: if hasPermission("organization.manage");
+      allow create: if hasPermanentPermission("organization.manage")
+        && request.resource.data.createdBy == uid()
+        && request.resource.data.createdAt == request.time;
+      allow update: if hasPermanentPermission("organization.manage")
+        && doesNotChange(["createdAt", "createdBy"]);
       allow delete: if false;
     }
 
