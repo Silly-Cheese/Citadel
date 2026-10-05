@@ -210,6 +210,18 @@ function money(value) {
   }).format(Number(value || 0));
 }
 
+function employeeName(records, employeeId, fallback = "Employee") {
+  if (!employeeId) return fallback;
+  const employee=(records||[]).find(item=>String(item.employeeId||item.id)===String(employeeId));
+  return employee?.displayName||fallback;
+}
+
+function employeeMeta(records, employeeId) {
+  if (!employeeId) return "";
+  const employee=(records||[]).find(item=>String(item.employeeId||item.id)===String(employeeId));
+  return employee ? [employee.positionName,employee.departmentName].filter(Boolean).join(" · ") : "";
+}
+
 function asDate(value) {
   if (!value) return null;
   if (value?.toDate) return value.toDate();
@@ -544,7 +556,10 @@ export function createGeneration3(ctx) {
   }
 
   async function renderReports(target) {
-    const reports=await safeCollection("savedReports",100);
+    const [reports,employees]=await Promise.all([
+      safeCollection("savedReports",100),
+      hasPermission("employee.view")?safeCollection("employees",250):Promise.resolve([])
+    ]);
     const available=Object.entries(REPORT_DATASETS).filter(([,cfg])=>hasPermission(cfg.permission));
 
     target.innerHTML=`
@@ -554,7 +569,7 @@ export function createGeneration3(ctx) {
         <section class="card">
           <div class="card-head"><div><h2>Saved reports</h2><p>${reports.length} report definition${reports.length===1?"":"s"}</p></div></div>
           ${reports.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Report</th><th>Dataset</th><th>Filter</th><th>Owner</th><th>Updated</th></tr></thead><tbody>
-            ${reports.map(r=>`<tr data-report="${esc(r.id)}" style="cursor:pointer"><td><div class="primary-cell">${esc(r.name||"Report")}</div><div class="secondary">${esc(r.reportId||"—")}</div></td><td>${esc(REPORT_DATASETS[r.dataset]?.label||r.dataset||"—")}</td><td>${esc(r.filterText||"No filter")}</td><td>${esc(r.ownerEmployeeId||"—")}</td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`).join("")}
+            ${reports.map(r=>`<tr data-report="${esc(r.id)}" style="cursor:pointer"><td><div class="primary-cell">${esc(r.name||"Report")}</div><div class="secondary">${esc(r.reportId||"—")}</div></td><td>${esc(REPORT_DATASETS[r.dataset]?.label||r.dataset||"—")}</td><td>${esc(r.filterText||"No filter")}</td><td><div class="primary-cell">${esc(employeeName(employees,r.ownerEmployeeId,"Employee"))}</div><div class="secondary">${esc(employeeMeta(employees,r.ownerEmployeeId))}</div></td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`).join("")}
           </tbody></table></div>`:'<div class="empty"><strong>No saved reports</strong><p>Create a report definition for repeatable operational analysis and CSV export.</p></div>'}
         </section>
       </div>
@@ -645,9 +660,10 @@ export function createGeneration3(ctx) {
   }
 
   async function renderAutomation(target) {
-    const [workflows,runs]=await Promise.all([
+    const [workflows,runs,employees]=await Promise.all([
       safeCollection("workflows",100),
-      safeCollection("workflowRuns",150)
+      safeCollection("workflowRuns",150),
+      hasPermission("employee.view")?safeCollection("employees",250):Promise.resolve([])
     ]);
     const active=workflows.filter(w=>w.status==="Active");
     const openRuns=runs.filter(r=>!["Completed","Cancelled"].includes(r.status));
@@ -726,7 +742,7 @@ export function createGeneration3(ctx) {
     }catch(error){toast("Workflow not launched",firebaseMessage(error));}
   }
 
-  async function openWorkflowRun(run) {
+  async function openWorkflowRun(run,employees=[]) {
     let tasks=[];
     try{
       const snap=await getDocs(query(collection(db,"workflowTasks"),where("runRecordId","==",run.id),limit(100)));
@@ -739,7 +755,7 @@ export function createGeneration3(ctx) {
       width:"820px",
       body:`
         <div class="progress-shell"><div class="progress-meta"><strong>${run.completedSteps||0} / ${run.totalSteps||tasks.length}</strong><span>steps complete</span></div><div class="progress-track"><div class="progress-fill" style="width:${Math.round(((run.completedSteps||0)/Math.max(1,run.totalSteps||tasks.length))*100)}%"></div></div></div>
-        <div class="list">${tasks.map(t=>`<div class="list-row"><div class="grow"><strong>${esc(t.sequence+". "+t.title)}</strong><span>${esc(t.assignedEmployeeId||"Unassigned")} · ${esc(t.status||"Queued")}</span></div>${t.status!=="Completed"&&hasPermission("workflow.run.manage")?`<button class="btn btn-sm btn-primary" type="button" data-complete-task="${esc(t.id)}">Complete</button>`:statusBadge(t.status||"Queued")}</div>`).join("")}</div>
+        <div class="list">${tasks.map(t=>`<div class="list-row"><div class="grow"><strong>${esc(t.sequence+". "+t.title)}</strong><span>${esc(employeeName(employees,t.assignedEmployeeId,"Unassigned"))} · ${esc(t.status||"Queued")}</span></div>${t.status!=="Completed"&&hasPermission("workflow.run.manage")?`<button class="btn btn-sm btn-primary" type="button" data-complete-task="${esc(t.id)}">Complete</button>`:statusBadge(t.status||"Queued")}</div>`).join("")}</div>
       `,
       onSubmit:async()=>true
     });
@@ -778,10 +794,11 @@ export function createGeneration3(ctx) {
   async function renderSecurityOps(target) {
     const canAlerts=hasPermission("security.alerts.view");
     const canManageAccess=hasPermission("access.temporary.manage");
-    const [alerts,requests,grants]=await Promise.all([
+    const [alerts,requests,grants,employees]=await Promise.all([
       canAlerts?safeCollection("securityAlerts",150):Promise.resolve([]),
       canManageAccess?safeCollection("accessRequests",150):loadOwnAccessRequests(),
-      canManageAccess?safeCollection("temporaryAccess",150):loadOwnTemporaryGrant()
+      canManageAccess?safeCollection("temporaryAccess",150):loadOwnTemporaryGrant(),
+      hasPermission("employee.view")?safeCollection("employees",250):Promise.resolve([])
     ]);
     const openAlerts=alerts.filter(a=>!["Resolved","Closed"].includes(a.status));
     const pendingRequests=requests.filter(r=>r.status==="Pending");
@@ -798,7 +815,7 @@ export function createGeneration3(ctx) {
         <div class="grid-2">
           <section class="card">
             <div class="card-head"><div><h2>Access requests</h2><p>Time-limited permission and clearance requests</p></div></div>
-            ${requests.length?`<div class="list">${requests.slice(0,25).map(r=>`<div class="list-row"><div class="grow"><strong>${esc(r.requesterEmployeeId||"Employee")}</strong><span>${esc((r.requestedPermissions||[]).join(", ")||"No permissions")} · C${Number(r.requestedClearance||0)} · ${esc(r.status||"Pending")}</span></div>${canManageAccess&&r.status==="Pending"?`<button class="btn btn-sm btn-primary" data-review-access="${esc(r.id)}">Review</button>`:statusBadge(r.status||"Pending")}</div>`).join("")}</div>`:'<div class="empty"><strong>No access requests</strong><p>Temporary authorization requests will appear here.</p></div>'}
+            ${requests.length?`<div class="list">${requests.slice(0,25).map(r=>`<div class="list-row"><div class="grow"><strong>${esc(employeeName(employees,r.requesterEmployeeId,"Employee"))}</strong><span>${esc((r.requestedPermissions||[]).slice(0,3).map(tempPermissionFriendlyName).join(", ")||"No permissions")}${(r.requestedPermissions||[]).length>3?" +"+((r.requestedPermissions||[]).length-3):""} · C${Number(r.requestedClearance||0)} · ${esc(r.status||"Pending")}</span></div>${canManageAccess&&r.status==="Pending"?`<button class="btn btn-sm btn-primary" data-review-access="${esc(r.id)}">Review</button>`:statusBadge(r.status||"Pending")}</div>`).join("")}</div>`:'<div class="empty"><strong>No access requests</strong><p>Temporary authorization requests will appear here.</p></div>'}
           </section>
           <section class="card">
             <div class="card-head"><div><h2>Security alerts</h2><p>Operational security register</p></div>${hasPermission("security.alerts.manage")?'<button class="btn btn-sm" data-new-alert>New alert</button>':""}</div>
@@ -809,7 +826,7 @@ export function createGeneration3(ctx) {
           <section class="card" style="margin-top:14px">
             <div class="card-head"><div><h2>Temporary grants</h2><p>Active and recently issued time-limited authorization</p></div></div>
             ${grants.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Employee</th><th>Permissions</th><th>Clearance</th><th>Expires</th><th>Status</th></tr></thead><tbody>
-              ${grants.map(g=>`<tr data-grant="${esc(g.id)}" style="cursor:pointer"><td class="primary-cell">${esc(g.employeeId||g.userId||g.id)}</td><td>${esc((g.permissions||[]).join(", ")||"—")}</td><td>C${Number(g.clearanceLevel||0)}</td><td>${esc(fmtDateTime(g.expiresAt))}</td><td>${statusBadge(g.active!==false&&!isPast(g.expiresAt)?"Active":"Expired / Revoked")}</td></tr>`).join("")}
+              ${grants.map(g=>`<tr data-grant="${esc(g.id)}" style="cursor:pointer"><td><div class="primary-cell">${esc(employeeName(employees,g.employeeId,"Employee"))}</div><div class="secondary">${esc(employeeMeta(employees,g.employeeId))}</div></td><td>${esc((g.permissions||[]).slice(0,3).map(tempPermissionFriendlyName).join(", ")||"—")}${(g.permissions||[]).length>3?" +"+((g.permissions||[]).length-3):""}</td><td>C${Number(g.clearanceLevel||0)}</td><td>${esc(fmtDateTime(g.expiresAt))}</td><td>${statusBadge(g.active!==false&&!isPast(g.expiresAt)?"Active":"Expired / Revoked")}</td></tr>`).join("")}
             </tbody></table></div>`:'<div class="empty"><strong>No temporary grants</strong><p>Approved access grants will appear here.</p></div>'}
           </section>
         `:""}
@@ -895,7 +912,7 @@ export function createGeneration3(ctx) {
     wirePermissionSearch();
   }
 
-  function reviewAccessRequest(request) {
+  function reviewAccessRequest(request,employees=[]) {
     const requestedHours=Math.max(1,Math.min(24,Number(request.requestedHours||1)));
     openModal({
       title:`Review access · ${request.requestId||""}`,
@@ -903,7 +920,7 @@ export function createGeneration3(ctx) {
       body:`
         <div class="notice warning" style="margin-bottom:16px"><div><strong>C8+ authorization required</strong>Temporary grants are enforced by Firestore Rules and automatically stop applying after expiration.</div></div>
         <div class="security-grid" style="margin-bottom:16px">
-          <div class="security-box"><span>Employee</span><strong>${esc(request.requesterEmployeeId||"—")}</strong></div>
+          <div class="security-box"><span>Employee</span><strong>${esc(employeeName(employees,request.requesterEmployeeId,"Employee"))}</strong></div>
           <div class="security-box"><span>Requested clearance</span><strong>C${Number(request.requestedClearance||0)}</strong></div>
           <div class="security-box"><span>Duration</span><strong>${requestedHours}h</strong></div>
         </div>
@@ -979,9 +996,9 @@ export function createGeneration3(ctx) {
     wirePermissionSearch();
   }
 
-  function manageGrant(grant) {
+  function manageGrant(grant,employees=[]) {
     openModal({
-      title:`Temporary grant · ${grant.employeeId||grant.userId||""}`,
+      title:`Temporary access · ${employeeName(employees,grant.employeeId,"Employee")}`,
       submitLabel:"Revoke grant",
       body:`
         <div class="security-grid">
@@ -989,7 +1006,7 @@ export function createGeneration3(ctx) {
           <div class="security-box"><span>Expires</span><strong>${esc(fmtDateTime(grant.expiresAt))}</strong></div>
           <div class="security-box"><span>Status</span><strong>${grant.active!==false&&!isPast(grant.expiresAt)?"Active":"Expired / Revoked"}</strong></div>
         </div>
-        <div class="notice" style="margin-top:16px"><div><strong>Permissions</strong>${esc((grant.permissions||[]).join(", ")||"None")}</div></div>
+        <div class="notice" style="margin-top:16px"><div><strong>Permissions</strong>${esc((grant.permissions||[]).map(tempPermissionFriendlyName).join(", ")||"None")}</div></div>
       `,
       onSubmit:async()=>{
         try{
