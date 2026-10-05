@@ -603,10 +603,11 @@ export function createGeneration2(ctx) {
 
 
   async function renderOrganization(target) {
-    const [departments, positions, locations] = await Promise.all([
+    const [departments, positions, locations, refs] = await Promise.all([
       safeCollection("departments", 100),
       safeCollection("positions", 120),
-      safeCollection("locations", 100)
+      safeCollection("locations", 100),
+      loadReferences()
     ]);
     const canManage = hasPermission("organization.manage");
 
@@ -623,7 +624,7 @@ export function createGeneration2(ctx) {
           <section class="card">
             <div class="card-head"><div><h2>Departments</h2><p>Organizational units and leadership assignments</p></div></div>
             ${departments.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Department</th><th>Code</th><th>Leader</th><th>Status</th></tr></thead><tbody>
-              ${departments.map(r=>`<tr><td>${cell(r.name||"Department",r.departmentId)}</td><td>${esc(r.code||"—")}</td><td>${esc(r.leaderEmployeeId||"Unassigned")}</td><td>${statusBadge(r.status||"Active")}</td></tr>`).join("")}
+              ${departments.map(r=>`<tr><td>${cell(r.name||"Department",r.departmentId)}</td><td>${esc(r.code||"—")}</td><td>${esc(employeeLabel(refs,r.leaderEmployeeId,"Unassigned"))}</td><td>${statusBadge(r.status||"Active")}</td></tr>`).join("")}
             </tbody></table></div>` : '<div class="empty"><strong>No departments configured</strong><p>Departments can be created by Organization administrators.</p></div>'}
           </section>
           <div class="grid-2">
@@ -904,6 +905,7 @@ export function createGeneration2(ctx) {
 
   async function renderTraining(target) {
     const canAll = hasPermission("training.view");
+    const refs = await loadReferences();
     const records = canAll
       ? await safeCollection("trainingRecords",100)
       : await getDocs(query(collection(db,"trainingRecords"),where("employeeId","==",state.employee?.employeeId || "__none__"),limit(100))).then(s=>s.docs.map(d=>({id:d.id,...d.data()})));
@@ -913,7 +915,7 @@ export function createGeneration2(ctx) {
         <section class="card">
           <div class="card-head"><div><h2>Training records</h2><p>${records.length} visible record${records.length===1?"":"s"}</p></div></div>
           ${records.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Course / Certification</th><th>Employee</th><th>Status</th><th>Completed</th><th>Expires</th></tr></thead><tbody>
-          ${records.map(r=>`<tr><td>${cell(r.title||"Training",r.recordId)}</td><td>${esc(r.employeeId||"—")}</td><td>${statusBadge(r.status||"Assigned")}</td><td>${esc(r.completedDate||"—")}</td><td>${esc(r.expirationDate||"—")}</td></tr>`).join("")}
+          ${records.map(r=>`<tr><td>${cell(r.title||"Training",r.recordId)}</td><td><div class="primary-cell">${esc(employeeLabel(refs,r.employeeId,"Employee"))}</div><div class="secondary">${esc(employeeContext(refs,r.employeeId))}</div></td><td>${statusBadge(r.status||"Assigned")}</td><td>${esc(r.completedDate||"—")}</td><td>${esc(r.expirationDate||"—")}</td></tr>`).join("")}
           </tbody></table></div>` : '<div class="empty"><strong>No training records</strong><p>Assigned and completed training will appear here.</p></div>'}
         </section>
       </div>
@@ -945,6 +947,7 @@ export function createGeneration2(ctx) {
 
   async function renderService(target) {
     const canViewAll = hasPermission("service.view");
+    const refs = await loadReferences();
     const records = canViewAll
       ? await safeCollection("serviceTickets",120)
       : await getDocs(query(collection(db,"serviceTickets"),where("requesterUid","==",state.user.uid),limit(120)))
@@ -959,7 +962,7 @@ export function createGeneration2(ctx) {
             ${records.map(r=>{
               const due=asDate(r.slaDueAt);
               const breached=due&&due.getTime()<Date.now()&&!["Resolved","Closed","Cancelled"].includes(r.status);
-              return `<tr data-service-record="${esc(r.id)}" style="${hasPermission("service.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Request",r.ticketId)}</td><td>${esc(r.catalog||"General")}</td><td>${statusBadge(r.priority||"Normal")}</td><td>${statusBadge(r.status||"New")}</td><td>${r.slaDueAt?statusBadge(breached?"Breached":"On Track"):'<span class="badge">Not set</span>'}</td><td>${esc(r.requesterEmployeeId||"—")}</td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`;
+              return `<tr data-service-record="${esc(r.id)}" style="${hasPermission("service.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Request",r.ticketId)}</td><td>${esc(r.catalog||"General")}</td><td>${statusBadge(r.priority||"Normal")}</td><td>${statusBadge(r.status||"New")}</td><td>${r.slaDueAt?statusBadge(breached?"Breached":"On Track"):'<span class="badge">Not set</span>'}</td><td><div class="primary-cell">${esc(employeeLabel(refs,r.requesterEmployeeId,"Employee"))}</div><div class="secondary">${esc(employeeContext(refs,r.requesterEmployeeId))}</div></td><td>${esc(fmtDate(r.updatedAt||r.createdAt))}</td></tr>`;
             }).join("")}
           </tbody></table></div>` : '<div class="empty"><strong>No service requests</strong><p>Use New Request for IT, HR, Facilities, Security, Access, Procurement, or other internal support.</p></div>'}
         </section>
@@ -1049,6 +1052,7 @@ export function createGeneration2(ctx) {
 
   async function renderProcurement(target) {
     const canViewAll=hasPermission("procurement.view");
+    const refs=await loadReferences();
     const requests=canViewAll
       ? await safeCollection("purchaseRequests",120)
       : await getDocs(query(collection(db,"purchaseRequests"),where("requesterUid","==",state.user.uid),limit(120))).then(s=>s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt)));
@@ -1063,7 +1067,7 @@ export function createGeneration2(ctx) {
         </div>
         <section class="card"><div class="card-head"><div><h2>${canViewAll?"Purchase request queue":"My purchase requests"}</h2><p>Purchase, sourcing, and fulfillment lifecycle</p></div></div>
         ${requests.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Request</th><th>Department</th><th>Cost</th><th>Vendor</th><th>Status</th><th>Requester</th></tr></thead><tbody>
-          ${requests.map(r=>`<tr data-purchase-record="${esc(r.id)}" style="${hasPermission("procurement.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Purchase",r.purchaseRequestId)}</td><td>${esc(r.department||"—")}</td><td>${money(r.estimatedCost)}</td><td>${esc(r.preferredVendor||"Open sourcing")}</td><td>${statusBadge(r.status||"Submitted")}</td><td>${esc(r.requesterEmployeeId||"—")}</td></tr>`).join("")}
+          ${requests.map(r=>`<tr data-purchase-record="${esc(r.id)}" style="${hasPermission("procurement.manage") ? "cursor:pointer" : ""}"><td>${cell(r.title||"Purchase",r.purchaseRequestId)}</td><td>${esc(r.department||"—")}</td><td>${money(r.estimatedCost)}</td><td>${esc(r.preferredVendor||"Open sourcing")}</td><td>${statusBadge(r.status||"Submitted")}</td><td><div class="primary-cell">${esc(employeeLabel(refs,r.requesterEmployeeId,"Employee"))}</div><div class="secondary">${esc(employeeContext(refs,r.requesterEmployeeId))}</div></td></tr>`).join("")}
         </tbody></table></div>`:'<div class="empty"><strong>No purchase requests</strong><p>Submit a purchase request to begin the procurement workflow.</p></div>'}</section>
       </div>`;
     target.querySelector("[data-purchase]")?.addEventListener("click",purchaseModal);
@@ -1151,6 +1155,7 @@ export function createGeneration2(ctx) {
 
   async function renderFinance(target){
     const canViewAll=hasPermission("finance.view");
+    const refs=await loadReferences();
     const expenses=canViewAll
       ? await safeCollection("expenses",100)
       : await getDocs(query(collection(db,"expenses"),where("requesterUid","==",state.user.uid),limit(100))).then(s=>s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt)));
@@ -1176,17 +1181,17 @@ export function createGeneration2(ctx) {
     if (hasPermission("finance.manage")) {
       target.querySelectorAll("[data-expense-record]").forEach(row=>row.addEventListener("click",()=>{
         const record=expenses.find(r=>r.id===row.dataset.expenseRecord);
-        if(record) manageExpense(record);
+        if(record) manageExpense(record, refs);
       }));
     }
   }
 
-  function manageExpense(record){
+  function manageExpense(record, refs={employees:[]}){
     openModal({
       title:`Review expense · ${record.expenseId||""}`,
       submitLabel:"Save decision",
       body:`
-        <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.description||"Expense")}</strong>${money(record.amount)} · ${esc(record.requesterEmployeeId||"Employee")}</div></div>
+        <div class="notice" style="margin-bottom:16px"><div><strong>${esc(record.description||"Expense")}</strong>${money(record.amount)} · ${esc(employeeLabel(refs,record.requesterEmployeeId,"Employee"))}</div></div>
         <div class="form-grid">
           <div class="field"><label>Status</label><select class="select" name="status">${["Submitted","Under Review","Approved","Denied","Scheduled","Paid","Cancelled"].map(v=>`<option ${record.status===v?"selected":""}>${v}</option>`).join("")}</select></div>
           <div class="field"><label>Finance note</label><input class="input" name="financeNote" value="${esc(record.financeNote||"")}" /></div>
@@ -1290,8 +1295,11 @@ export function createGeneration2(ctx) {
   }
 
   async function renderCompliance(target){
-    const policies=await safeCollection("policies",100);
-    const findings=await safeCollection("complianceFindings",100);
+    const [policies,findings,refs]=await Promise.all([
+      safeCollection("policies",100),
+      safeCollection("complianceFindings",100),
+      loadReferences()
+    ]);
     target.innerHTML=`
       <div class="page">
         ${pageHeader("Compliance","Policies, acknowledgements, findings, remediation, and governance tracking.",hasPermission("compliance.manage")?'<button class="btn btn-primary" data-policy>New policy</button><button class="btn" data-finding>New finding</button>':"")}
@@ -1303,10 +1311,10 @@ export function createGeneration2(ctx) {
         </div>
         <div class="grid-2">
           <section class="card"><div class="card-head"><div><h2>Policies</h2><p>Corporate policy register</p></div></div>
-            ${policies.length?`<div class="list">${policies.slice(0,15).map(p=>`<div class="list-row"><div class="grow"><strong>${esc(p.title||"Policy")}</strong><span>${esc(p.policyId||"—")} · Owner ${esc(p.ownerEmployeeId||"—")}</span></div>${statusBadge(p.status||"Active")}</div>`).join("")}</div>`:'<div class="empty"><strong>No policies</strong><p>Create the first controlled policy record.</p></div>'}
+            ${policies.length?`<div class="list">${policies.slice(0,15).map(p=>`<div class="list-row"><div class="grow"><strong>${esc(p.title||"Policy")}</strong><span>Owner: ${esc(employeeLabel(refs,p.ownerEmployeeId,"Unassigned"))}</span></div>${statusBadge(p.status||"Active")}</div>`).join("")}</div>`:'<div class="empty"><strong>No policies</strong><p>Create the first controlled policy record.</p></div>'}
           </section>
           <section class="card"><div class="card-head"><div><h2>Compliance findings</h2><p>Issues, owners, and remediation status</p></div></div>
-            ${findings.length?`<div class="list">${findings.slice(0,15).map(f=>`<div class="list-row"><div class="grow"><strong>${esc(f.title||"Finding")}</strong><span>${esc(f.recordId||"—")} · ${esc(f.ownerEmployeeId||"Unassigned")}</span></div>${statusBadge(f.severity||"Moderate")}</div>`).join("")}</div>`:'<div class="empty"><strong>No findings</strong><p>Compliance findings and remediation items will appear here.</p></div>'}
+            ${findings.length?`<div class="list">${findings.slice(0,15).map(f=>`<div class="list-row"><div class="grow"><strong>${esc(f.title||"Finding")}</strong><span>Owner: ${esc(employeeLabel(refs,f.ownerEmployeeId,"Unassigned"))}</span></div>${statusBadge(f.severity||"Moderate")}</div>`).join("")}</div>`:'<div class="empty"><strong>No findings</strong><p>Compliance findings and remediation items will appear here.</p></div>'}
           </section>
         </div>
       </div>`;
