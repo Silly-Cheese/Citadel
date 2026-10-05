@@ -138,6 +138,7 @@ const MODULES = {
     title: "Contracts",
     subtitle: "Contract registry, responsible owners, renewal dates, value, and status.",
     collection: "contracts",
+    classified: true,
     prefix: "CTR",
     counter: "contracts",
     view: "contract.view",
@@ -198,6 +199,7 @@ const MODULES = {
     title: "Documents",
     subtitle: "Controlled corporate document registry with classification and record ownership.",
     collection: "documents",
+    classified: true,
     prefix: "DOC",
     counter: "documents",
     view: "document.view",
@@ -283,6 +285,7 @@ const MODULES = {
     title: "Investigations",
     subtitle: "Restricted internal investigations, case ownership, evidence context, and controlled outcomes.",
     collection: "investigations",
+    classified: true,
     prefix: "IGT",
     counter: "investigations",
     view: "investigation.view",
@@ -347,6 +350,18 @@ function money(value) {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
 
+function classificationLevel(value = "STANDARD") {
+  const levels = {
+    STANDARD: 0,
+    INTERNAL: 1,
+    CONFIDENTIAL: 2,
+    SENSITIVE: 4,
+    RESTRICTED: 6,
+    HIGHLY_RESTRICTED: 8
+  };
+  return levels[String(value).toUpperCase()] ?? 0;
+}
+
 function asMillis(value) {
   try {
     return value?.toMillis ? value.toMillis() : new Date(value || 0).getTime();
@@ -396,6 +411,16 @@ export function createGeneration2(ctx) {
 
   async function recordsForAccess(config, ownerField = null, selfPermission = null) {
     if (hasPermission(config.view)) {
+      if (config.classified && state.profile?.isSystemOwner !== true) {
+        const snap = await getDocs(query(
+          collection(db, config.collection),
+          where("minimumClearance", "<=", Number(state.profile?.clearanceLevel || 0)),
+          limit(150)
+        ));
+        return snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a,b) => asMillis(b.createdAt) - asMillis(a.createdAt));
+      }
       return safeCollection(config.collection, 150);
     }
 
@@ -453,6 +478,10 @@ export function createGeneration2(ctx) {
         if (readOnly) return true;
         try {
           const data = collectFields(fd, config.fields);
+          if (config.classified && data.classification) {
+            data.minimumClearance = classificationLevel(data.classification);
+          }
+
           if (editing) {
             await updateDoc(doc(db, config.collection, record.id), {
               ...data,
