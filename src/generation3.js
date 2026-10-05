@@ -66,19 +66,54 @@ const TEMP_PERMISSION_GROUPS = {
   "Operations": ["system.health.view","bulk.manage","notification.view","organization.view"]
 };
 
+function tempPermissionFriendlyName(permission) {
+  const action=String(permission).split(".").slice(1).join(" ");
+  const map={
+    "view":"View",
+    "create":"Create",
+    "edit":"Edit",
+    "edit contact":"Edit contact information",
+    "view financial":"View financial information",
+    "restrict":"Restrict records",
+    "merge":"Merge records",
+    "assign":"Assign",
+    "close":"Close",
+    "manage":"Manage",
+    "request leave":"Request leave",
+    "expense create":"Submit expenses",
+    "self":"View own records",
+    "run":"Run workflows",
+    "run manage":"Manage workflow runs",
+    "executive":"Executive analytics",
+    "customize":"Customize",
+    "alerts view":"View alerts",
+    "alerts manage":"Manage alerts",
+    "health view":"View system health",
+    "export":"Export"
+  };
+  return map[action] || action.split(" ").map(word=>word.charAt(0).toUpperCase()+word.slice(1)).join(" ");
+}
+
 function temporaryPermissionPicker(selectedPermissions = []) {
   const selected=new Set(selectedPermissions);
-  return Object.entries(TEMP_PERMISSION_GROUPS).map(([group,permissions])=>`
-    <section class="permission-group" data-temp-permission-group>
-      <div class="permission-group-head"><strong>${esc(group)}</strong><span>${permissions.length} permissions</span></div>
-      <div class="permission-grid">${permissions.map(permission=>`
-        <label class="permission-option" data-temp-permission-option="${esc(permission.toLowerCase())}">
-          <input type="checkbox" name="permissions" value="${esc(permission)}" ${selected.has(permission)?"checked":""}/>
-          <span><strong>${esc(permission)}</strong></span>
+  return Object.entries(TEMP_PERMISSION_GROUPS).map(([group,permissions],index)=>{
+    const selectedCount=permissions.filter(permission=>selected.has(permission)).length;
+    return `<details class="permission-group" data-temp-permission-group ${index<2||selectedCount?"open":""}>
+      <summary class="permission-group-head">
+        <div class="permission-group-title">
+          <span class="permission-group-icon">${esc(group.charAt(0))}</span>
+          <span><strong>${esc(group)}</strong><small><span data-temp-group-selected>${selectedCount}</span> of ${permissions.length} selected</small></span>
+        </div>
+        <span class="permission-chevron">⌄</span>
+      </summary>
+      <div class="permission-list">${permissions.map(permission=>`
+        <label class="permission-row" data-temp-permission-option="${esc((tempPermissionFriendlyName(permission)+" "+permission).toLowerCase())}">
+          <span class="permission-check"><input type="checkbox" name="permissions" value="${esc(permission)}" ${selected.has(permission)?"checked":""}/><i></i></span>
+          <span class="permission-copy"><strong>${esc(tempPermissionFriendlyName(permission))}</strong><small>${esc(permission)}</small></span>
         </label>
       `).join("")}</div>
-    </section>
-  `).join("");
+    </details>`;
+  }).join("");
 }
 
 const PROTECTED_TEMP_PERMISSIONS = new Set([
@@ -247,17 +282,35 @@ export function createGeneration3(ctx) {
   } = ctx;
 
   function wirePermissionSearch(selector="[data-temp-permission-search]") {
-    const input=document.querySelector(selector);
+    const root=document.getElementById("modal-root");
+    const input=root.querySelector(selector);
+    const count=root.querySelector("[data-temp-permission-count]");
+
+    const refresh=()=>{
+      const checked=root.querySelectorAll('input[name="permissions"]:checked');
+      if(count) count.textContent=checked.length;
+      root.querySelectorAll("[data-temp-permission-group]").forEach(group=>{
+        const groupChecked=group.querySelectorAll('input[name="permissions"]:checked').length;
+        const label=group.querySelector("[data-temp-group-selected]");
+        if(label) label.textContent=groupChecked;
+        group.classList.toggle("has-selection",groupChecked>0);
+      });
+    };
+
     input?.addEventListener("input",()=>{
       const term=input.value.trim().toLowerCase();
-      document.querySelectorAll("[data-temp-permission-option]").forEach(el=>{
-        el.style.display=!term||el.dataset.tempPermissionOption.includes(term)?"":"none";
+      root.querySelectorAll("[data-temp-permission-option]").forEach(el=>{
+        const visible=!term||el.dataset.tempPermissionOption.includes(term);
+        el.hidden=!visible;
       });
-      document.querySelectorAll("[data-temp-permission-group]").forEach(group=>{
-        const visible=[...group.querySelectorAll("[data-temp-permission-option]")].some(el=>el.style.display!=="none");
-        group.style.display=visible?"":"none";
+      root.querySelectorAll("[data-temp-permission-group]").forEach(group=>{
+        const visible=[...group.querySelectorAll("[data-temp-permission-option]")].some(el=>!el.hidden);
+        group.hidden=!visible;
+        if(term&&visible) group.open=true;
       });
     });
+    root.querySelectorAll('input[name="permissions"]').forEach(el=>el.addEventListener("change",refresh));
+    refresh();
   }
 
   async function relatedRecordOptions() {
@@ -787,8 +840,9 @@ export function createGeneration3(ctx) {
       body:`
         <div class="notice warning" style="margin-bottom:16px"><div><strong>Temporary authority</strong>Requested permissions do not bypass clearance or auditing unless an authorized C8+ security administrator explicitly grants temporary clearance.</div></div>
         <div class="form-grid">
-          <div class="field span-2"><label>Requested permissions</label>
-            <input class="input" type="search" data-temp-permission-search placeholder="Search permissions…" style="margin-bottom:10px" />
+          <div class="field span-2 permission-field">
+            <div class="field-heading"><div><label>Requested permissions</label><span>Select only the temporary capabilities needed for this request.</span></div><div class="selection-count"><strong data-temp-permission-count>0</strong><span>selected</span></div></div>
+            <div class="permission-search-wrap" style="margin:8px 0 12px"><span>⌕</span><input class="input" type="search" data-temp-permission-search placeholder="Search permissions…" /></div>
             <div class="permission-picker">${temporaryPermissionPicker()}</div>
           </div>
           <div class="field"><label>Requested clearance</label><select class="select" name="clearance">${Array.from({length:10},(_,i)=>`<option value="${i}" ${i===Math.min(9,effectiveClearance())?"selected":""}>C${i}</option>`).join("")}</select></div>
@@ -837,8 +891,9 @@ export function createGeneration3(ctx) {
           <div class="security-box"><span>Requested clearance</span><strong>C${Number(request.requestedClearance||0)}</strong></div>
           <div class="security-box"><span>Duration</span><strong>${requestedHours}h</strong></div>
         </div>
-        <div class="field span-2"><label>Permissions</label>
-          <input class="input" type="search" data-temp-permission-search placeholder="Search permissions…" style="margin-bottom:10px" />
+        <div class="field span-2 permission-field">
+          <div class="field-heading"><div><label>Permissions</label><span>Review exactly what will be granted temporarily.</span></div><div class="selection-count"><strong data-temp-permission-count>0</strong><span>selected</span></div></div>
+          <div class="permission-search-wrap" style="margin:8px 0 12px"><span>⌕</span><input class="input" type="search" data-temp-permission-search placeholder="Search permissions…" /></div>
           <div class="permission-picker">${temporaryPermissionPicker(request.requestedPermissions||[])}</div>
         </div>
         <div class="field"><label>Decision</label><select class="select" name="decision"><option>Approved</option><option>Denied</option></select></div>
