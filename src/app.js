@@ -705,7 +705,7 @@ async function renderHome(target) {
 
 async function customerQuery() {
   const term = state.search.trim().toLowerCase();
-  const clearance = Number(state.profile?.clearanceLevel || 0);
+  const clearance = effectiveClearance();
 
   // No composite indexes: fetch only records authorized by the single
   // minimumClearance field, then apply text/ID filtering in memory.
@@ -1380,6 +1380,7 @@ function approveAccountModal(request) {
 const generation2 = createGeneration2({
   state,
   hasPermission,
+  effectiveClearance,
   nextId,
   audit,
   safeCollection,
