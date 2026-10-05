@@ -654,16 +654,33 @@ function renderPendingAccess(bootstrapConfigured) {
 }
 
 function navHtml() {
-  let lastSection = "";
-  return NAV.filter((item) => {
+  const visible = NAV.filter((item) => {
     if (item.anyPermission) return item.anyPermission.some((permission) => hasPermission(permission));
     return !item.permission || hasPermission(item.permission);
-  }).map((item) => {
-    const label = item.section !== lastSection ? `<div class="nav-label">${esc(item.section)}</div>` : "";
-    lastSection = item.section;
-    return `${label}<button class="nav-item ${state.route === item.id ? "active" : ""}" data-route="${item.id}">
-      <span class="nav-icon">${item.icon}</span><span>${esc(item.label)}</span>
-    </button>`;
+  });
+
+  let collapsed = {};
+  try { collapsed = JSON.parse(localStorage.getItem("citadel.nav.collapsed") || "{}"); } catch {}
+
+  const groups = new Map();
+  visible.forEach(item => {
+    if (!groups.has(item.section)) groups.set(item.section, []);
+    groups.get(item.section).push(item);
+  });
+
+  return [...groups.entries()].map(([section, items]) => {
+    const containsActive = items.some(item => item.id === state.route);
+    const isCollapsed = collapsed[section] === true && !containsActive;
+    return `<section class="nav-section ${isCollapsed ? "collapsed" : ""}" data-nav-section-wrap="${esc(section)}">
+      <button class="nav-section-toggle" type="button" data-nav-section="${esc(section)}" aria-expanded="${isCollapsed ? "false" : "true"}">
+        <span>${esc(section)}</span><span class="nav-section-chevron">⌄</span>
+      </button>
+      <div class="nav-section-items" ${isCollapsed ? "hidden" : ""}>
+        ${items.map(item => `<button class="nav-item ${state.route === item.id ? "active" : ""}" data-route="${item.id}">
+          <span class="nav-icon">${item.icon}</span><span>${esc(item.label)}</span>
+        </button>`).join("")}
+      </div>
+    </section>`;
   }).join("");
 }
 
@@ -708,6 +725,19 @@ function renderShell() {
   `;
 
   app.querySelectorAll("[data-route]").forEach((el) => el.addEventListener("click", () => navigate(el.dataset.route)));
+  app.querySelectorAll("[data-nav-section]").forEach(button => button.addEventListener("click", () => {
+    const section = button.dataset.navSection;
+    const wrapper = button.closest("[data-nav-section-wrap]");
+    const items = wrapper.querySelector(".nav-section-items");
+    const open = wrapper.classList.contains("collapsed");
+    wrapper.classList.toggle("collapsed", !open);
+    items.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    let collapsed = {};
+    try { collapsed = JSON.parse(localStorage.getItem("citadel.nav.collapsed") || "{}"); } catch {}
+    collapsed[section] = !open;
+    localStorage.setItem("citadel.nav.collapsed", JSON.stringify(collapsed));
+  }));
   app.querySelector("[data-signout]").addEventListener("click", () => signOut(auth));
   app.querySelector("[data-menu]")?.addEventListener("click", () => app.querySelector("#shell").classList.add("menu-open"));
   app.querySelector("[data-close-menu]")?.addEventListener("click", () => app.querySelector("#shell").classList.remove("menu-open"));
@@ -1311,7 +1341,7 @@ async function newCaseModal() {
       <div class="form-grid">
         <div class="field span-2"><label>Case title</label><input class="input" name="title" required /></div>
         <div class="field"><label>Customer</label><select class="select" name="customerId"><option value="">No customer / internal case</option>${refs.customers.map(customer => option(customer.customerId || customer.id, `${customerDisplayName(customer)} — ${customer.customerId || ""}`)).join("")}</select></div>
-        <div class="field"><label>Category</label><input class="input" name="category" placeholder="Billing, Service, General…" /></div>
+        <div class="field"><label>Category</label><select class="select" name="category"><option>General</option><option>Account</option><option>Billing</option><option>Service</option><option>Complaint</option><option>Order</option><option>Technical</option><option>Security</option><option>Compliance</option><option>Other</option></select></div>
         <div class="field"><label>Priority</label><select class="select" name="priority"><option>Normal</option><option>High</option><option>Critical</option><option>Low</option></select></div>
         <div class="field"><label>Status</label><select class="select" name="status"><option>New</option><option>Open</option><option>In Progress</option><option>Pending Customer</option><option>Pending Internal</option><option>Escalated</option></select></div>
         <div class="field"><label>SLA target</label><select class="select" name="slaHours"><option value="4">4 hours</option><option value="8">8 hours</option><option value="24" selected>24 hours</option><option value="48">48 hours</option><option value="72">72 hours</option></select></div>
@@ -1454,7 +1484,7 @@ async function renderApprovals(target) {
     <div class="page">
       ${pageHeader("Approvals", "One queue for decisions that require authorized review.")}
       <section class="card">
-        <div class="card-head"><div><h2>Approval queue</h2><p>Part 1 approval foundation</p></div></div>
+        <div class="card-head"><div><h2>Approval queue</h2><p>Centralized authorization decisions</p></div></div>
         ${approvals.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Approval</th><th>Type</th><th>Status</th><th>Requester</th><th>Submitted</th></tr></thead><tbody>
           ${approvals.map((a) => `<tr><td class="primary-cell">${esc(a.approvalId || a.title || "Approval")}</td><td>${esc(a.type || "General")}</td><td>${statusBadge(a.status || "Pending")}</td><td>${esc(a.requesterEmployeeId || "—")}</td><td>${esc(fmtDate(a.createdAt))}</td></tr>`).join("")}
         </tbody></table></div>` : '<div class="empty"><strong>No pending approvals</strong><p>Future workflows will route authorization decisions into this queue.</p></div>'}
