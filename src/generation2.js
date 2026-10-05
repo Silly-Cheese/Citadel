@@ -445,6 +445,7 @@ export function createGeneration2(ctx) {
     state,
     hasPermission,
     effectiveClearance,
+    classificationsForClearance,
     nextId,
     audit,
     safeCollection,
@@ -471,10 +472,14 @@ export function createGeneration2(ctx) {
     if(hasPermission("customer.view")){
       tasks.push((async()=>{
         try{
-          const snap=state.profile?.isSystemOwner===true
-            ? await getDocs(query(collection(db,"customers"),orderBy("createdAt","desc"),limit(250)))
-            : await getDocs(query(collection(db,"customers"),where("minimumClearance","<=",effectiveClearance()),limit(250)));
-          refs.customers=snap.docs.map(d=>({id:d.id,...d.data()}));
+          const snap=await getDocs(query(
+            collection(db,"customers"),
+            where("classification","in",classificationsForClearance()),
+            limit(250)
+          ));
+          refs.customers=snap.docs
+            .map(d=>({id:d.id,...d.data()}))
+            .sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt));
         }catch{}
       })());
     }
@@ -484,10 +489,10 @@ export function createGeneration2(ctx) {
 
   async function recordsForAccess(config, ownerField = null, selfPermission = null) {
     if (hasPermission(config.view)) {
-      if (config.classified && state.profile?.isSystemOwner !== true) {
+      if (config.classified) {
         const snap = await getDocs(query(
           collection(db, config.collection),
-          where("minimumClearance", "<=", effectiveClearance()),
+          where("classification", "in", classificationsForClearance()),
           limit(150)
         ));
         return snap.docs
