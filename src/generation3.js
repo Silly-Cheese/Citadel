@@ -51,6 +51,16 @@ export const GENERATION3_NAV = [
   { section: "Security", id: "securityOps", label: "Security Ops", icon: "◉", anyPermission: ["security.alerts.view", "access.request", "access.temporary.manage"] }
 ];
 
+const PROTECTED_TEMP_PERMISSIONS = new Set([
+  "system.manage",
+  "access.manage",
+  "access.temporary.manage",
+  "security.manage",
+  "employee.manage",
+  "organization.manage",
+  "admin.organization.manage"
+]);
+
 const DEFAULT_WIDGETS = [
   "customers",
   "openCases",
@@ -563,6 +573,7 @@ export function createGeneration3(ctx) {
         startedByUid:state.user.uid,
         startedByEmployeeId:state.employee?.employeeId||null,
         startedAt:serverTimestamp(),
+        createdAt:serverTimestamp(),
         updatedAt:serverTimestamp()
       });
       steps.forEach((title,index)=>{
@@ -709,7 +720,7 @@ export function createGeneration3(ctx) {
         <div class="notice warning" style="margin-bottom:16px"><div><strong>Temporary authority</strong>Requested permissions do not bypass clearance or auditing unless an authorized C8+ security administrator explicitly grants temporary clearance.</div></div>
         <div class="form-grid">
           <div class="field span-2"><label>Requested permissions</label><textarea class="textarea" name="permissions" placeholder="One permission per line" required></textarea></div>
-          <div class="field"><label>Requested clearance</label><select class="select" name="clearance">${Array.from({length:11},(_,i)=>`<option value="${i}" ${i===effectiveClearance()?"selected":""}>C${i}</option>`).join("")}</select></div>
+          <div class="field"><label>Requested clearance</label><select class="select" name="clearance">${Array.from({length:10},(_,i)=>`<option value="${i}" ${i===Math.min(9,effectiveClearance())?"selected":""}>C${i}</option>`).join("")}</select></div>
           <div class="field"><label>Requested duration</label><select class="select" name="hours"><option value="1">1 hour</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="24">24 hours</option></select></div>
           <div class="field span-2"><label>Business / emergency reason</label><textarea class="textarea" name="reason" required></textarea></div>
           <div class="field span-2"><label>Reference / case number</label><input class="input" name="reference" /></div>
@@ -755,13 +766,18 @@ export function createGeneration3(ctx) {
           <div class="security-box"><span>Duration</span><strong>${requestedHours}h</strong></div>
         </div>
         <div class="field"><label>Permissions</label><textarea class="textarea" name="permissions">${esc((request.requestedPermissions||[]).join("\n"))}</textarea></div>
-        <div class="field"><label>Approved clearance</label><select class="select" name="clearance">${Array.from({length:11},(_,i)=>`<option value="${i}" ${i===Number(request.requestedClearance||0)?"selected":""}>C${i}</option>`).join("")}</select></div>
+        <div class="field"><label>Approved clearance</label><select class="select" name="clearance">${Array.from({length:10},(_,i)=>`<option value="${i}" ${i===Math.min(9,Number(request.requestedClearance||0))?"selected":""}>C${i}</option>`).join("")}</select></div>
         <div class="field"><label>Approval note</label><textarea class="textarea" name="approvalNote"></textarea></div>
       `,
       onSubmit:async fd=>{
         try{
           const permissions=[...new Set(String(fd.get("permissions")||"").split(/\r?\n/).map(v=>v.trim()).filter(Boolean))];
-          const clearance=Math.min(10,Number(fd.get("clearance")||0));
+          const protectedRequested=permissions.filter(p=>PROTECTED_TEMP_PERMISSIONS.has(p));
+          if(protectedRequested.length){
+            toast("Permanent authority required","These permissions cannot be granted temporarily: "+protectedRequested.join(", "));
+            return false;
+          }
+          const clearance=Math.min(9,Number(fd.get("clearance")||0));
           const expiresAt=new Date(Date.now()+requestedHours*3600000);
           await setDoc(doc(db,"temporaryAccess",request.requesterUid),{
             userId:request.requesterUid,
@@ -775,6 +791,7 @@ export function createGeneration3(ctx) {
             grantedByUid:state.user.uid,
             grantedByEmployeeId:state.employee?.employeeId||null,
             grantedAt:serverTimestamp(),
+            createdAt:serverTimestamp(),
             expiresAt,
             updatedAt:serverTimestamp()
           });
