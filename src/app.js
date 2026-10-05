@@ -57,6 +57,7 @@ const OWNER_PERMISSIONS = [
   "customer.edit.contact",
   "customer.view.financial",
   "customer.restrict",
+  "customer.lock.manage",
   "customer.merge",
   "case.view",
   "case.create",
@@ -102,7 +103,8 @@ const PRIVILEGED_ACCESS_PERMISSIONS = new Set([
   "security.manage",
   "employee.manage",
   "organization.manage",
-  "admin.organization.manage"
+  "admin.organization.manage",
+  "customer.lock.manage"
 ]);
 
 const PERMISSION_GROUP_LABELS = [
@@ -174,6 +176,12 @@ function hasPermission(permission) {
   return permanent || temporary;
 }
 
+function hasPermanentPermission(permission) {
+  if (!state.profile) return false;
+  if (state.profile.isSystemOwner === true) return true;
+  return Array.isArray(state.profile.permissions) && state.profile.permissions.includes(permission);
+}
+
 function classificationLevel(value = "STANDARD") {
   const levels = {
     STANDARD: 0,
@@ -196,6 +204,17 @@ function classificationsForClearance(level = effectiveClearance()) {
     clearance >= 6 && "RESTRICTED",
     clearance >= 8 && "HIGHLY_RESTRICTED"
   ].filter(Boolean);
+}
+
+function customerAccessLevelsForClearance(level = effectiveClearance()) {
+  const clearance = Math.max(0, Math.min(10, Number(level || 0)));
+  return Array.from({ length: clearance + 1 }, (_, index) => index);
+}
+
+function customerRequiredAccessLevel(classification, recordLocked = false, lockMinimumClearance = 0) {
+  const base = classificationLevel(classification);
+  const lock = recordLocked ? Math.max(0, Math.min(10, Number(lockMinimumClearance || 0))) : 0;
+  return Math.max(base, lock);
 }
 
 function accountName() {
@@ -329,6 +348,7 @@ function permissionFriendlyName(permission) {
     "edit contact": "Edit contact information",
     "view financial": "View financial information",
     "restrict": "Restrict records",
+    "lock manage": "Manage customer record locks",
     "merge": "Merge records",
     "assign": "Assign",
     "close": "Close",
@@ -1965,6 +1985,7 @@ const generation2 = createGeneration2({
   hasPermission,
   effectiveClearance,
   classificationsForClearance,
+  customerAccessLevelsForClearance,
   nextId,
   audit,
   safeCollection,
@@ -1980,6 +2001,7 @@ const generation3 = createGeneration3({
   hasPermission,
   effectiveClearance,
   classificationsForClearance,
+  customerAccessLevelsForClearance,
   nextId,
   audit,
   safeCollection,
