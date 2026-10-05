@@ -10,8 +10,8 @@ import {
   limit,
   where,
   serverTimestamp
-} from "./firebase.js";
-import { esc, fmtDate, fmtDateTime, statusBadge, classificationBadge } from "./utils.js";
+} from "./firebase.js?v=20261005-r2";
+import { esc, fmtDate, fmtDateTime, statusBadge, classificationBadge } from "./utils.js?v=20261005-r2";
 
 export const GENERATION2_PERMISSIONS = [
   "hr.view",
