@@ -126,7 +126,8 @@ const PROTECTED_TEMP_PERMISSIONS = new Set([
   "security.manage",
   "employee.manage",
   "organization.manage",
-  "admin.organization.manage"
+  "admin.organization.manage",
+  "customer.lock.manage"
 ]);
 
 const DEFAULT_WIDGETS = [
