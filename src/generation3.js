@@ -51,6 +51,36 @@ export const GENERATION3_NAV = [
   { section: "Security", id: "securityOps", label: "Security Ops", icon: "◉", anyPermission: ["security.alerts.view", "access.request", "access.temporary.manage"] }
 ];
 
+const TEMP_PERMISSION_GROUPS = {
+  "Customers": ["customer.view","customer.create","customer.edit","customer.edit.contact","customer.view.financial","customer.restrict","customer.merge"],
+  "Cases": ["case.view","case.create","case.assign","case.close"],
+  "People & HR": ["employee.view","hr.view","hr.request.leave","training.view","training.self"],
+  "Service & Assets": ["service.view","service.create","service.manage","asset.view","asset.manage"],
+  "Procurement & Vendors": ["procurement.view","procurement.request","procurement.manage","vendor.view","vendor.manage","contract.view","contract.manage"],
+  "Finance": ["finance.view","finance.expense.create","finance.manage"],
+  "Projects & Documents": ["project.view","project.manage","document.view","document.manage","communications.view","communications.manage"],
+  "Governance": ["compliance.view","compliance.manage","risk.view","risk.manage","investigation.view","investigation.manage"],
+  "Workflow & Approvals": ["workflow.view","workflow.manage","workflow.run","workflow.run.manage","approval.view","approval.manage"],
+  "Analytics & Reporting": ["analytics.view","analytics.executive","dashboard.customize","report.view","report.manage"],
+  "Security": ["security.alerts.view","security.alerts.manage","access.request","audit.view","audit.export"],
+  "Operations": ["system.health.view","bulk.manage","notification.view","organization.view"]
+};
+
+function temporaryPermissionPicker(selectedPermissions = []) {
+  const selected=new Set(selectedPermissions);
+  return Object.entries(TEMP_PERMISSION_GROUPS).map(([group,permissions])=>`
+    <section class="permission-group" data-temp-permission-group>
+      <div class="permission-group-head"><strong>${esc(group)}</strong><span>${permissions.length} permissions</span></div>
+      <div class="permission-grid">${permissions.map(permission=>`
+        <label class="permission-option" data-temp-permission-option="${esc(permission.toLowerCase())}">
+          <input type="checkbox" name="permissions" value="${esc(permission)}" ${selected.has(permission)?"checked":""}/>
+          <span><strong>${esc(permission)}</strong></span>
+        </label>
+      `).join("")}</div>
+    </section>
+  `).join("");
+}
+
 const PROTECTED_TEMP_PERMISSIONS = new Set([
   "system.manage",
   "access.manage",
@@ -215,6 +245,37 @@ export function createGeneration3(ctx) {
     openModal,
     firebaseMessage
   } = ctx;
+
+  function wirePermissionSearch(selector="[data-temp-permission-search]") {
+    const input=document.querySelector(selector);
+    input?.addEventListener("input",()=>{
+      const term=input.value.trim().toLowerCase();
+      document.querySelectorAll("[data-temp-permission-option]").forEach(el=>{
+        el.style.display=!term||el.dataset.tempPermissionOption.includes(term)?"":"none";
+      });
+      document.querySelectorAll("[data-temp-permission-group]").forEach(group=>{
+        const visible=[...group.querySelectorAll("[data-temp-permission-option]")].some(el=>el.style.display!=="none");
+        group.style.display=visible?"":"none";
+      });
+    });
+  }
+
+  async function relatedRecordOptions() {
+    const [customers,cases,employees,assets,projects]=await Promise.all([
+      hasPermission("customer.view")?authorizedCustomers(200):Promise.resolve([]),
+      hasPermission("case.view")?safeCollection("cases",200):Promise.resolve([]),
+      hasPermission("employee.view")?safeCollection("employees",200):Promise.resolve([]),
+      hasPermission("asset.view")?safeCollection("assets",200):Promise.resolve([]),
+      hasPermission("project.view")?safeCollection("projects",200):Promise.resolve([])
+    ]);
+    return [
+      ...customers.map(r=>({value:r.customerId||r.id,label:`Customer · ${customerDisplayName(r)}`})),
+      ...cases.map(r=>({value:r.caseId||r.id,label:`Case · ${r.title||r.caseId||"Case"}`})),
+      ...employees.map(r=>({value:r.employeeId||r.id,label:`Employee · ${r.displayName||r.employeeId||"Employee"}`})),
+      ...assets.map(r=>({value:r.assetId||r.id,label:`Asset · ${r.name||r.assetId||"Asset"}`})),
+      ...projects.map(r=>({value:r.projectId||r.id,label:`Project · ${r.name||r.projectId||"Project"}`}))
+    ];
+  }
 
   async function authorizedCustomers(count = 250) {
     if (!hasPermission("customer.view")) return [];
@@ -718,25 +779,29 @@ export function createGeneration3(ctx) {
     }catch{return [];}
   }
 
-  function accessRequestModal() {
+  async function accessRequestModal() {
+    const cases=hasPermission("case.view")?await safeCollection("cases",200):[];
     openModal({
       title:"Request temporary access",
       submitLabel:"Submit request",
       body:`
         <div class="notice warning" style="margin-bottom:16px"><div><strong>Temporary authority</strong>Requested permissions do not bypass clearance or auditing unless an authorized C8+ security administrator explicitly grants temporary clearance.</div></div>
         <div class="form-grid">
-          <div class="field span-2"><label>Requested permissions</label><textarea class="textarea" name="permissions" placeholder="One permission per line" required></textarea></div>
+          <div class="field span-2"><label>Requested permissions</label>
+            <input class="input" type="search" data-temp-permission-search placeholder="Search permissions…" style="margin-bottom:10px" />
+            <div class="permission-picker">${temporaryPermissionPicker()}</div>
+          </div>
           <div class="field"><label>Requested clearance</label><select class="select" name="clearance">${Array.from({length:10},(_,i)=>`<option value="${i}" ${i===Math.min(9,effectiveClearance())?"selected":""}>C${i}</option>`).join("")}</select></div>
           <div class="field"><label>Requested duration</label><select class="select" name="hours"><option value="1">1 hour</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="24">24 hours</option></select></div>
           <div class="field span-2"><label>Business / emergency reason</label><textarea class="textarea" name="reason" required></textarea></div>
-          <div class="field span-2"><label>Reference / case number</label><input class="input" name="reference" /></div>
+          <div class="field span-2"><label>Related case</label><select class="select" name="reference"><option value="">No related case</option>${cases.map(r=>`<option value="${esc(r.caseId||r.id)}">${esc(r.title||"Case")} — ${esc(r.caseId||"")}</option>`).join("")}</select></div>
         </div>
       `,
       onSubmit:async fd=>{
         try{
           const requestId=await nextId("accessRequests","ACR");
           const ref=doc(collection(db,"accessRequests"));
-          const permissions=[...new Set(String(fd.get("permissions")||"").split(/\r?\n/).map(v=>v.trim()).filter(Boolean))];
+          const permissions=[...new Set(fd.getAll("permissions").map(String).filter(Boolean))];
           await setDoc(ref,{
             requestId,
             requesterUid:state.user.uid,
@@ -757,6 +822,7 @@ export function createGeneration3(ctx) {
         }catch(error){toast("Request failed",firebaseMessage(error));return false;}
       }
     });
+    wirePermissionSearch();
   }
 
   function reviewAccessRequest(request) {
@@ -771,7 +837,10 @@ export function createGeneration3(ctx) {
           <div class="security-box"><span>Requested clearance</span><strong>C${Number(request.requestedClearance||0)}</strong></div>
           <div class="security-box"><span>Duration</span><strong>${requestedHours}h</strong></div>
         </div>
-        <div class="field"><label>Permissions</label><textarea class="textarea" name="permissions">${esc((request.requestedPermissions||[]).join("\n"))}</textarea></div>
+        <div class="field span-2"><label>Permissions</label>
+          <input class="input" type="search" data-temp-permission-search placeholder="Search permissions…" style="margin-bottom:10px" />
+          <div class="permission-picker">${temporaryPermissionPicker(request.requestedPermissions||[])}</div>
+        </div>
         <div class="field"><label>Decision</label><select class="select" name="decision"><option>Approved</option><option>Denied</option></select></div>
         <div class="field"><label>Approved clearance</label><select class="select" name="clearance">${Array.from({length:10},(_,i)=>`<option value="${i}" ${i===Math.min(9,Number(request.requestedClearance||0))?"selected":""}>C${i}</option>`).join("")}</select></div>
         <div class="field span-2"><label>Decision note</label><textarea class="textarea" name="approvalNote"></textarea></div>
@@ -794,7 +863,7 @@ export function createGeneration3(ctx) {
             return true;
           }
 
-          const permissions=[...new Set(String(fd.get("permissions")||"").split(/\r?\n/).map(v=>v.trim()).filter(Boolean))];
+          const permissions=[...new Set(fd.getAll("permissions").map(String).filter(Boolean))];
           const protectedRequested=permissions.filter(p=>PROTECTED_TEMP_PERMISSIONS.has(p));
           if(protectedRequested.length){
             toast("Permanent authority required","These permissions cannot be granted temporarily: "+protectedRequested.join(", "));
@@ -836,6 +905,7 @@ export function createGeneration3(ctx) {
         }catch(error){toast("Grant failed",firebaseMessage(error));return false;}
       }
     });
+    wirePermissionSearch();
   }
 
   function manageGrant(grant) {
@@ -894,7 +964,8 @@ export function createGeneration3(ctx) {
     });
   }
 
-  function securityAlertModal() {
+  async function securityAlertModal() {
+    const related=await relatedRecordOptions();
     openModal({
       title:"Create security alert",
       submitLabel:"Create alert",
@@ -902,7 +973,7 @@ export function createGeneration3(ctx) {
         <div class="field span-2"><label>Alert title</label><input class="input" name="title" required /></div>
         <div class="field"><label>Severity</label><select class="select" name="severity"><option>Low</option><option>Moderate</option><option>High</option><option>Critical</option></select></div>
         <div class="field"><label>Category</label><select class="select" name="category"><option>Access</option><option>Authentication</option><option>Data</option><option>Policy</option><option>Investigation</option><option>System</option><option>Other</option></select></div>
-        <div class="field"><label>Related entity ID</label><input class="input" name="relatedId" /></div>
+        <div class="field"><label>Related record</label><select class="select" name="relatedId"><option value="">No related record</option>${related.map(r=>`<option value="${esc(r.value)}">${esc(r.label)}</option>`).join("")}</select></div>
         <div class="field"><label>Status</label><select class="select" name="status"><option>Open</option><option>Investigating</option><option>Monitoring</option><option>Resolved</option></select></div>
         <div class="field span-2"><label>Details</label><textarea class="textarea" name="details" required></textarea></div>
       </div>`,
@@ -1007,17 +1078,17 @@ export function createGeneration3(ctx) {
     const available=Object.entries(BULK_DATASETS).filter(([,cfg])=>hasPermission(cfg.permission));
     target.innerHTML=`
       <div class="page">
-        ${pageHeader("Bulk Center","Perform controlled high-volume status updates while preserving each module's Firestore security rules.")}
-        <div class="notice warning" style="margin-bottom:14px"><div><strong>Security remains authoritative</strong>Bulk Center does not bypass module permissions. Every write in the batch must independently pass Firestore Rules.</div></div>
+        ${pageHeader("Bulk Center","Perform controlled high-volume status updates by selecting records—no IDs need to be typed.")}
+        <div class="notice warning" style="margin-bottom:14px"><div><strong>Security remains authoritative</strong>Bulk Center does not bypass module permissions. Every selected record must independently pass Firestore Rules.</div></div>
         ${available.length?`
           <section class="card">
-            <div class="card-head"><div><h2>Bulk status update</h2><p>Match by Citadel human-facing IDs</p></div></div>
+            <div class="card-head"><div><h2>Bulk status update</h2><p>Select records directly from Citadel</p></div></div>
             <div class="card-body">
               <form id="bulk-form">
                 <div class="form-grid">
                   <div class="field"><label>Dataset</label><select class="select" name="dataset">${available.map(([key,cfg])=>`<option value="${key}">${esc(cfg.label)}</option>`).join("")}</select></div>
                   <div class="field"><label>New status</label><select class="select" name="status" data-bulk-status></select></div>
-                  <div class="field span-2"><label>Record IDs</label><textarea class="textarea" name="ids" style="min-height:180px" placeholder="One ID per line, e.g. CASE-000001" required></textarea></div>
+                  <div class="field span-2"><label>Select records</label><input class="input" type="search" data-bulk-search placeholder="Search loaded records…" style="margin-bottom:10px"/><div class="record-picker" data-bulk-records></div></div>
                   <div class="field span-2"><label>Bulk action reason</label><input class="input" name="reason" required /></div>
                 </div>
                 <button class="btn btn-primary" type="submit">Apply bulk update</button>
@@ -1031,25 +1102,55 @@ export function createGeneration3(ctx) {
     if(!form) return;
     const dataset=form.querySelector('[name="dataset"]');
     const status=form.querySelector('[name="status"]');
-    const populate=()=>{
+    const recordsRoot=form.querySelector("[data-bulk-records]");
+    const search=form.querySelector("[data-bulk-search]");
+    let loadedRecords=[];
+
+    const recordLabel=(key,record)=>{
+      if(key==="cases") return `${record.title||"Case"} · ${record.status||"Open"}`;
+      if(key==="serviceTickets") return `${record.title||"Service request"} · ${record.status||"New"}`;
+      if(key==="assets") return `${record.name||"Asset"} · ${record.status||"Available"}`;
+      if(key==="purchaseRequests") return `${record.title||"Purchase request"} · ${money(record.estimatedCost)}`;
+      if(key==="expenses") return `${record.description||"Expense"} · ${money(record.amount)}`;
+      if(key==="projects") return `${record.name||"Project"} · ${record.status||"Planning"}`;
+      if(key==="risks") return `${record.title||"Risk"} · ${record.impact||"Moderate"}`;
+      return record.name||record.title||"Record";
+    };
+
+    const renderRecords=()=>{
+      const term=(search.value||"").trim().toLowerCase();
+      const visible=loadedRecords.filter(record=>!term||recordLabel(dataset.value,record).toLowerCase().includes(term));
+      recordsRoot.innerHTML=visible.length?`<div class="record-picker-grid">${visible.map(record=>`
+        <label class="permission-option">
+          <input type="checkbox" name="recordIds" value="${esc(record.id)}"/>
+          <span><strong>${esc(recordLabel(dataset.value,record))}</strong><small>${esc(BULK_DATASETS[dataset.value].humanId ? record[BULK_DATASETS[dataset.value].humanId] || "" : "")}</small></span>
+        </label>
+      `).join("")}</div>`:'<div class="empty compact"><strong>No matching records</strong><p>Adjust the search or choose another dataset.</p></div>';
+    };
+
+    const loadDataset=async()=>{
       const cfg=BULK_DATASETS[dataset.value];
       status.innerHTML=cfg.statuses.map(v=>`<option>${esc(v)}</option>`).join("");
+      recordsRoot.innerHTML='<div class="empty compact"><strong>Loading records…</strong></div>';
+      loadedRecords=await safeCollection(dataset.value,300);
+      renderRecords();
     };
-    dataset.addEventListener("change",populate);
-    populate();
+
+    dataset.addEventListener("change",()=>{search.value="";loadDataset();});
+    search.addEventListener("input",renderRecords);
+    await loadDataset();
+
     form.addEventListener("submit",async event=>{
       event.preventDefault();
       const fd=new FormData(form);
       const key=String(fd.get("dataset"));
-      const cfg=BULK_DATASETS[key];
-      const ids=[...new Set(String(fd.get("ids")||"").split(/\r?\n|,/).map(v=>v.trim().toUpperCase()).filter(Boolean))];
-      if(!ids.length) return toast("No IDs","Enter at least one Citadel record ID.");
+      const selectedIds=fd.getAll("recordIds").map(String);
+      if(!selectedIds.length) return toast("No records selected","Choose one or more records from the list.");
+      const matched=loadedRecords.filter(r=>selectedIds.includes(r.id));
+      if(!matched.length) return toast("No records selected","Choose one or more records from the list.");
       const button=form.querySelector('button[type="submit"]');
       button.disabled=true;
       try{
-        const records=await safeCollection(key,500);
-        const matched=records.filter(r=>ids.includes(String(r[cfg.humanId]||"").toUpperCase()));
-        if(!matched.length){toast("No records matched","No authorized records matched those IDs.");return;}
         const batch=writeBatch(db);
         matched.forEach(record=>batch.update(doc(db,key,record.id),{
           status:String(fd.get("status")||""),
@@ -1061,7 +1162,8 @@ export function createGeneration3(ctx) {
         await batch.commit();
         await audit("BULK_STATUS_UPDATED","bulk",key,{recordCount:matched.length,targetStatus:String(fd.get("status")||"")});
         toast("Bulk update complete",`${matched.length} record${matched.length===1?"":"s"} updated.`);
-        form.reset();populate();
+        form.querySelector('[name="reason"]').value="";
+        await loadDataset();
       }catch(error){toast("Bulk update failed",firebaseMessage(error));}
       finally{button.disabled=false;}
     });
