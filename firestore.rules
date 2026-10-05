@@ -58,13 +58,29 @@ service cloud.firestore {
         && profile().clearanceLevel >= level;
     }
 
+    function classificationLevel(classification) {
+      return classification == "STANDARD" ? 0
+        : classification == "INTERNAL" ? 1
+        : classification == "CONFIDENTIAL" ? 2
+        : classification == "SENSITIVE" ? 4
+        : classification == "RESTRICTED" ? 6
+        : classification == "HIGHLY_RESTRICTED" ? 8
+        : 10;
+    }
+
     function classificationAllowed(classification) {
-      return classification == "STANDARD"
-        || (classification == "INTERNAL" && clearanceAtLeast(1))
-        || (classification == "CONFIDENTIAL" && clearanceAtLeast(2))
-        || (classification == "SENSITIVE" && clearanceAtLeast(4))
-        || (classification == "RESTRICTED" && clearanceAtLeast(6))
-        || (classification == "HIGHLY_RESTRICTED" && clearanceAtLeast(8));
+      return clearanceAtLeast(classificationLevel(classification));
+    }
+
+    function classifiedRecordAllowed(data) {
+      return activeAccount()
+        && data.minimumClearance is int
+        && data.minimumClearance <= profile().clearanceLevel;
+    }
+
+    function validClassification(data) {
+      return data.minimumClearance is int
+        && data.minimumClearance == classificationLevel(data.classification);
     }
 
     match /system/bootstrap {
@@ -188,14 +204,22 @@ service cloud.firestore {
     }
 
     match /customers/{customerRecordId} {
-      allow read: if hasPermission("customer.view")
-        && classificationAllowed(resource.data.classification);
+      allow read: if isSystemOwner()
+        || (
+          hasPermission("customer.view")
+          && classifiedRecordAllowed(resource.data)
+        );
 
       allow create: if hasPermission("customer.create")
+        && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
       allow update: if hasPermission("customer.edit")
-        && classificationAllowed(resource.data.classification)
+        && (
+          isSystemOwner()
+          || classifiedRecordAllowed(resource.data)
+        )
+        && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
       allow delete: if false;
@@ -290,7 +314,9 @@ service cloud.firestore {
         || (counterId == "complianceFindings" && hasPermission("compliance.manage"))
         || (counterId == "departments" && hasPermission("organization.manage"))
         || (counterId == "positions" && hasPermission("organization.manage"))
-        || (counterId == "locations" && hasPermission("organization.manage"));
+        || (counterId == "locations" && hasPermission("organization.manage"))
+        || (counterId == "risks" && hasPermission("risk.manage"))
+        || (counterId == "investigations" && hasPermission("investigation.manage"));
     }
 
     match /counters/{counterId} {
@@ -395,14 +421,22 @@ service cloud.firestore {
     }
 
     match /contracts/{recordId} {
-      allow read: if hasPermission("contract.view")
-        && classificationAllowed(resource.data.classification);
+      allow read: if isSystemOwner()
+        || (
+          hasPermission("contract.view")
+          && classifiedRecordAllowed(resource.data)
+        );
 
       allow create: if hasPermission("contract.manage")
+        && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
       allow update: if hasPermission("contract.manage")
-        && classificationAllowed(resource.data.classification)
+        && (
+          isSystemOwner()
+          || classifiedRecordAllowed(resource.data)
+        )
+        && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
       allow delete: if false;
@@ -432,14 +466,22 @@ service cloud.firestore {
     }
 
     match /documents/{recordId} {
-      allow read: if hasPermission("document.view")
-        && classificationAllowed(resource.data.classification);
+      allow read: if isSystemOwner()
+        || (
+          hasPermission("document.view")
+          && classifiedRecordAllowed(resource.data)
+        );
 
       allow create: if hasPermission("document.manage")
+        && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
       allow update: if hasPermission("document.manage")
-        && classificationAllowed(resource.data.classification)
+        && (
+          isSystemOwner()
+          || classifiedRecordAllowed(resource.data)
+        )
+        && validClassification(request.resource.data)
         && classificationAllowed(request.resource.data.classification);
 
       allow delete: if false;
@@ -470,6 +512,34 @@ service cloud.firestore {
     match /complianceFindings/{recordId} {
       allow read: if hasPermission("compliance.view");
       allow create, update: if hasPermission("compliance.manage");
+      allow delete: if false;
+    }
+
+    match /risks/{recordId} {
+      allow read: if hasPermission("risk.view");
+      allow create, update: if hasPermission("risk.manage");
+      allow delete: if false;
+    }
+
+    match /investigations/{recordId} {
+      allow read: if isSystemOwner()
+        || (
+          hasPermission("investigation.view")
+          && classifiedRecordAllowed(resource.data)
+        );
+
+      allow create: if hasPermission("investigation.manage")
+        && validClassification(request.resource.data)
+        && classificationAllowed(request.resource.data.classification);
+
+      allow update: if hasPermission("investigation.manage")
+        && (
+          isSystemOwner()
+          || classifiedRecordAllowed(resource.data)
+        )
+        && validClassification(request.resource.data)
+        && classificationAllowed(request.resource.data.classification);
+
       allow delete: if false;
     }
 
