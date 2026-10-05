@@ -12,6 +12,8 @@ import {
   getDocs,
   query,
   where,
+  orderBy,
+  limit,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -243,6 +245,114 @@ test("System Owner can grant privileged permissions without creating a second ow
     protectedPrincipal: false,
     scope: "organization"
   }));
+});
+
+test("Citadel page list queries are query-safe", async () => {
+  await seedProfile("pageuser", {
+    employeeId: "EMP-PAGEUSER",
+    permissions: [
+      "employee.view",
+      "hr.request.leave",
+      "training.self",
+      "service.create",
+      "procurement.request",
+      "finance.expense.create",
+      "notification.view",
+      "access.request"
+    ],
+    clearanceLevel: 2
+  });
+
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+
+    await setDoc(doc(db, "employees", "pageuser"), {
+      employeeId: "EMP-PAGEUSER",
+      displayName: "Page User",
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+
+    await setDoc(doc(db, "leaveRequests", "leave-self"), {
+      requesterUid: "pageuser",
+      requesterEmployeeId: "EMP-PAGEUSER",
+      status: "Pending",
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+    await setDoc(doc(db, "leaveRequests", "leave-other"), {
+      requesterUid: "other",
+      requesterEmployeeId: "EMP-OTHER",
+      status: "Pending",
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+
+    await setDoc(doc(db, "trainingRecords", "training-self"), {
+      employeeId: "EMP-PAGEUSER",
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+    await setDoc(doc(db, "trainingRecords", "training-other"), {
+      employeeId: "EMP-OTHER",
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+
+    for (const [collectionName, id] of [
+      ["serviceTickets","service-self"],
+      ["purchaseRequests","purchase-self"],
+      ["expenses","expense-self"]
+    ]) {
+      await setDoc(doc(db, collectionName, id), {
+        requesterUid: "pageuser",
+        requesterEmployeeId: "EMP-PAGEUSER",
+        createdAt: Timestamp.fromMillis(Date.now())
+      });
+      await setDoc(doc(db, collectionName, id + "-other"), {
+        requesterUid: "other",
+        requesterEmployeeId: "EMP-OTHER",
+        createdAt: Timestamp.fromMillis(Date.now())
+      });
+    }
+
+    await setDoc(doc(db, "notifications", "notification-self"), {
+      recipientUid: "pageuser",
+      read: false,
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+    await setDoc(doc(db, "notifications", "notification-other"), {
+      recipientUid: "other",
+      read: false,
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+
+    await setDoc(doc(db, "accessRequests", "access-self"), {
+      requesterUid: "pageuser",
+      requesterEmployeeId: "EMP-PAGEUSER",
+      status: "Pending",
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+    await setDoc(doc(db, "accessRequests", "access-other"), {
+      requesterUid: "other",
+      requesterEmployeeId: "EMP-OTHER",
+      status: "Pending",
+      createdAt: Timestamp.fromMillis(Date.now())
+    });
+  });
+
+  const db = env.authenticatedContext("pageuser").firestore();
+
+  await assertSucceeds(getDocs(query(collection(db, "employees"), orderBy("createdAt", "desc"), limit(75))));
+
+  const selfQueries = [
+    query(collection(db, "leaveRequests"), where("requesterUid", "==", "pageuser"), limit(100)),
+    query(collection(db, "trainingRecords"), where("employeeId", "==", "EMP-PAGEUSER"), limit(100)),
+    query(collection(db, "serviceTickets"), where("requesterUid", "==", "pageuser"), limit(120)),
+    query(collection(db, "purchaseRequests"), where("requesterUid", "==", "pageuser"), limit(120)),
+    query(collection(db, "expenses"), where("requesterUid", "==", "pageuser"), limit(100)),
+    query(collection(db, "notifications"), where("recipientUid", "==", "pageuser"), limit(100)),
+    query(collection(db, "accessRequests"), where("requesterUid", "==", "pageuser"), limit(50))
+  ];
+
+  for (const q of selfQueries) {
+    await assertSucceeds(getDocs(q));
+  }
 });
 
 test("notification recipients can mark read but cannot rewrite message content", async () => {
