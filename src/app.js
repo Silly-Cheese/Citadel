@@ -329,6 +329,11 @@ function permissionPicker(selectedPermissions = []) {
   }).join("");
 }
 
+function roleLabel(value) {
+  return ROLE_OPTIONS.find(([role]) => role === value)?.[1]
+    || String(value || "").replaceAll("_", " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function rolePicker(selectedRoles = []) {
   const selected = new Set(selectedRoles);
   return `<div class="role-grid">${ROLE_OPTIONS.map(([value,label]) => `
@@ -675,7 +680,7 @@ function renderShell() {
           <button class="icon-btn mobile-menu" data-menu aria-label="Open navigation">☰</button>
           <div class="global-search">
             <span class="search-icon">⌕</span>
-            <input class="input" id="global-search" placeholder="Search customers, employees, IDs…" value="${esc(state.search)}" />
+            <input class="input" id="global-search" placeholder="Search people, customers, cases, assets…" value="${esc(state.search)}" />
           </div>
           <div class="top-actions">
             <button class="icon-btn hide-mobile" title="Approvals" data-route="approvals">✓</button>
@@ -834,45 +839,102 @@ async function renderGlobalSearch(target) {
 }
 
 async function renderHome(target) {
-  const [customers, cases, approvals, requests] = await Promise.all([
+  const [customers, cases, approvals, requests, serviceTickets, notifications] = await Promise.all([
     hasPermission("customer.view") ? safeCollection("customers", 100) : [],
     hasPermission("case.view") ? safeCollection("cases", 100) : [],
     hasPermission("approval.view") ? safeCollection("approvals", 100) : [],
-    hasPermission("system.manage") ? safeCollection("registrationRequests", 100, "requestedAt") : []
+    hasPermission("system.manage") ? safeCollection("registrationRequests", 100, "requestedAt") : [],
+    hasPermission("service.view") ? safeCollection("serviceTickets", 100) : [],
+    hasPermission("notification.view") ? (async () => {
+      try {
+        const snap = await getDocs(query(collection(db,"notifications"),where("recipientUid","==",state.user.uid),limit(100)));
+        return snap.docs.map(d=>({id:d.id,...d.data()}));
+      } catch { return []; }
+    })() : []
   ]);
+
   const openCases = cases.filter((c) => !["closed","resolved"].includes(String(c.status).toLowerCase()));
-  const pendingApprovals = approvals.filter((a) => String(a.status).toLowerCase() === "pending");
+  const pendingApprovals = approvals.filter((a) => ["pending","submitted"].includes(String(a.status).toLowerCase()));
   const pendingAccounts = requests.filter((r) => r.status === "pending");
+  const openService = serviceTickets.filter(t => !["resolved","closed","cancelled"].includes(String(t.status).toLowerCase()));
+  const unreadNotifications = notifications.filter(n => n.read !== true);
+
+  const quickActions = [
+    hasPermission("customer.create") && { route:"customers", icon:"+", title:"New customer", detail:"Create a Customer 360 record" },
+    hasPermission("case.create") && { route:"cases", icon:"◇", title:"Open case", detail:"Start customer or operational casework" },
+    hasPermission("service.create") && { route:"service", icon:"↗", title:"Service request", detail:"Request internal support" },
+    hasPermission("procurement.request") && { route:"procurement", icon:"$", title:"Purchase request", detail:"Start procurement review" },
+    hasPermission("finance.expense.create") && { route:"finance", icon:"↥", title:"Submit expense", detail:"Send an expense to Finance" },
+    hasPermission("hr.request.leave") && { route:"hr", icon:"○", title:"Request leave", detail:"Submit time away for review" },
+    hasPermission("analytics.view") && { route:"intelligence", icon:"▥", title:"Enterprise insights", detail:"Open cross-functional intelligence" },
+    hasPermission("system.manage") && { route:"admin", icon:"⚙", title:"Administration", detail:"Provision accounts and system settings" }
+  ].filter(Boolean).slice(0,8);
+
+  const attention = [
+    pendingApprovals.length && { route:"approvals", value:pendingApprovals.length, title:"Approvals waiting", detail:"Decisions require authorized review" },
+    openCases.length && { route:"cases", value:openCases.length, title:"Open cases", detail:"Customer and operational casework" },
+    openService.length && { route:"service", value:openService.length, title:"Service requests", detail:"Internal support queue" },
+    pendingAccounts.length && { route:"admin", value:pendingAccounts.length, title:"Account requests", detail:"Users awaiting provisioning" },
+    unreadNotifications.length && { route:"notifications", value:unreadNotifications.length, title:"Unread notifications", detail:"New Citadel activity for you" }
+  ].filter(Boolean);
 
   target.innerHTML = `
     <div class="page">
-      ${pageHeader("Command", `Welcome back, ${accountName()}. Your authorized operational overview is below.`)}
-      <div class="kpi-grid">
-        <div class="kpi-card"><div class="kpi-label">Customers</div><div class="kpi-value">${customers.length}</div><div class="kpi-meta">Visible in current workspace</div></div>
-        <div class="kpi-card"><div class="kpi-label">Open cases</div><div class="kpi-value">${openCases.length}</div><div class="kpi-meta">Requires operational attention</div></div>
-        <div class="kpi-card"><div class="kpi-label">Pending approvals</div><div class="kpi-value">${pendingApprovals.length}</div><div class="kpi-meta">Awaiting authorized decision</div></div>
-        <div class="kpi-card"><div class="kpi-label">Account requests</div><div class="kpi-value">${pendingAccounts.length}</div><div class="kpi-meta">Pending provisioning</div></div>
+      <section class="home-hero">
+        <div class="home-hero-copy">
+          <div class="eyebrow">Your workspace</div>
+          <h1>Good to see you, ${esc(accountName().split(" ")[0] || accountName())}.</h1>
+          <p>${esc(state.employee?.positionName || roleLabel(state.profile?.roles?.[0] || "Employee"))} · ${esc(state.employee?.departmentName || "Citadel")}</p>
+        </div>
+        <div class="home-identity">
+          <div><span>Effective clearance</span><strong>C${effectiveClearance()}</strong></div>
+          <div><span>Primary role</span><strong>${esc(roleLabel(state.profile?.roles?.[0] || "Employee"))}</strong></div>
+          ${temporaryGrantActive() ? '<div class="home-temp-badge"><span>Temporary access</span><strong>Active</strong></div>' : ""}
+        </div>
+      </section>
+
+      <div class="kpi-grid home-kpis">
+        <button class="kpi-card kpi-button" data-route-local="customers"><div class="kpi-label">Customers</div><div class="kpi-value">${customers.length}</div><div class="kpi-meta">Authorized records</div></button>
+        <button class="kpi-card kpi-button" data-route-local="cases"><div class="kpi-label">Open cases</div><div class="kpi-value">${openCases.length}</div><div class="kpi-meta">Requires attention</div></button>
+        <button class="kpi-card kpi-button" data-route-local="approvals"><div class="kpi-label">Pending approvals</div><div class="kpi-value">${pendingApprovals.length}</div><div class="kpi-meta">Awaiting decisions</div></button>
+        <button class="kpi-card kpi-button" data-route-local="notifications"><div class="kpi-label">Unread</div><div class="kpi-value">${unreadNotifications.length}</div><div class="kpi-meta">Notifications</div></button>
       </div>
-      <div class="grid-2">
+
+      <section class="workspace-section">
+        <div class="section-heading"><div><span class="eyebrow">Start something</span><h2>Quick actions</h2></div></div>
+        <div class="quick-grid">
+          ${quickActions.map(action => `
+            <button class="quick-action" data-route-local="${esc(action.route)}">
+              <span class="quick-action-icon">${action.icon}</span>
+              <span><strong>${esc(action.title)}</strong><small>${esc(action.detail)}</small></span>
+              <span class="quick-action-arrow">→</span>
+            </button>
+          `).join("")}
+        </div>
+      </section>
+
+      <div class="grid-2 home-grid">
         <section class="card">
-          <div class="card-head"><div><h2>Recent cases</h2><p>Latest customer and operational case activity</p></div><button class="btn btn-sm" data-route-local="cases">View all</button></div>
-          ${openCases.length ? `<div class="list">${openCases.slice(0,6).map((c) => `
-            <div class="list-row"><div class="grow"><strong>${esc(c.title || c.caseId || "Case")}</strong><span>${esc(c.caseId || "—")} · ${esc(c.category || "General")}</span></div>${statusBadge(c.status || "Open")}</div>
-          `).join("")}</div>` : `<div class="empty"><strong>No open cases</strong><p>New cases will appear here as they are created.</p></div>`}
+          <div class="card-head"><div><h2>My work</h2><p>Items that need attention across Citadel</p></div></div>
+          ${attention.length ? `<div class="attention-list">${attention.map(item => `
+            <button class="attention-row" data-route-local="${esc(item.route)}">
+              <span class="attention-value">${item.value}</span>
+              <span class="grow"><strong>${esc(item.title)}</strong><small>${esc(item.detail)}</small></span>
+              <span class="attention-arrow">→</span>
+            </button>
+          `).join("")}</div>` : '<div class="empty"><strong>You are caught up</strong><p>No configured work queues currently need your attention.</p></div>'}
         </section>
+
         <section class="card">
-          <div class="card-head"><div><h2>Account security</h2><p>Your current Citadel authorization context</p></div></div>
-          <div class="card-body">
-            <div class="security-grid" style="grid-template-columns:1fr">
-              <div class="security-box"><span>Employee ID</span><strong>${esc(state.employee?.employeeId || "—")}</strong></div>
-              <div class="security-box"><span>Effective clearance</span><strong>C${effectiveClearance()}${temporaryGrantActive() && effectiveClearance() > Number(state.profile?.clearanceLevel||0) ? " · Temporary" : ""}</strong></div>
-              <div class="security-box"><span>Primary role</span><strong>${esc(state.profile?.roles?.[0] || "—")}</strong></div>
-            </div>
-          </div>
+          <div class="card-head"><div><h2>Recent cases</h2><p>Latest unresolved casework</p></div><button class="btn btn-sm" data-route-local="cases">View all</button></div>
+          ${openCases.length ? `<div class="list">${openCases.slice(0,6).map((caseRecord) => `
+            <div class="list-row"><div class="grow"><strong>${esc(caseRecord.title || "Case")}</strong><span>${esc(caseRecord.category || "General")} · ${esc(caseRecord.assignedEmployeeId || "Unassigned")}</span></div>${statusBadge(caseRecord.status || "Open")}</div>
+          `).join("")}</div>` : '<div class="empty"><strong>No open cases</strong><p>New casework will appear here.</p></div>'}
         </section>
       </div>
     </div>
   `;
+
   target.querySelectorAll("[data-route-local]").forEach((el) => el.addEventListener("click", () => navigate(el.dataset.routeLocal)));
 }
 
@@ -1361,10 +1423,16 @@ async function renderApprovals(target) {
 
 async function renderSecurity(target) {
   if (!hasPermission("security.manage")) throw Object.assign(new Error("Security administration permission required."), { code: "permission-denied" });
-  const [audits, accessProfiles] = await Promise.all([
+  const [audits, accessProfiles, employees] = await Promise.all([
     safeCollection("auditEvents", 40),
-    hasPermission("access.manage") ? safeCollection("accessProfiles", 100) : Promise.resolve([])
+    hasPermission("access.manage") ? safeCollection("accessProfiles", 100) : Promise.resolve([]),
+    hasPermission("employee.view") ? safeCollection("employees", 250) : Promise.resolve([])
   ]);
+  const employeeForProfile = (profile) => employees.find(employee =>
+    employee.id === profile.id
+    || employee.authUid === profile.id
+    || employee.employeeId === profile.employeeId
+  );
 
   target.innerHTML = `
     <div class="page">
@@ -1381,15 +1449,16 @@ async function renderSecurity(target) {
           ${accessProfiles.length ? `
             <div class="table-wrap"><table class="table">
               <thead><tr><th>Employee</th><th>Clearance</th><th>Roles</th><th>Status</th><th>Protected</th></tr></thead>
-              <tbody>${accessProfiles.map((p) => `
-                <tr data-access-profile="${esc(p.id)}" style="cursor:pointer">
-                  <td><div class="primary-cell">${esc(p.employeeId || p.id)}</div><div class="secondary">${esc(p.id)}</div></td>
+              <tbody>${accessProfiles.map((p) => {
+                const employee = employeeForProfile(p);
+                return `<tr data-access-profile="${esc(p.id)}" style="cursor:pointer">
+                  <td><div class="primary-cell">${esc(employee?.displayName || p.employeeId || "Citadel user")}</div><div class="secondary">${esc(employee?.positionName || "No position")} · ${esc(employee?.departmentName || "No department")}</div></td>
                   <td><span class="badge">C${Number(p.clearanceLevel || 0)}</span></td>
-                  <td>${esc((p.roles || []).join(", ") || "No role")}</td>
+                  <td>${esc((p.roles || []).map(roleLabel).join(", ") || "No role")}</td>
                   <td>${statusBadge(p.active === false ? "Suspended" : "Active")}</td>
                   <td>${p.protectedPrincipal ? '<span class="badge warning">Protected Principal</span>' : '<span class="badge">Standard</span>'}</td>
-                </tr>
-              `).join("")}</tbody>
+                </tr>`;
+              }).join("")}</tbody>
             </table></div>
           ` : '<div class="empty"><strong>No access profiles found</strong><p>Provisioned Citadel accounts will appear here.</p></div>'}
         </section>
@@ -1399,7 +1468,7 @@ async function renderSecurity(target) {
         <section class="card">
           <div class="card-head"><div><h2>My effective access</h2><p>Permissions currently granted to this account</p></div></div>
           <div class="list">
-            ${(state.profile?.permissions || []).map((p) => `<div class="list-row"><div class="grow"><strong>${esc(p)}</strong><span>Granted by ${esc(state.profile?.roles?.join(", ") || "access profile")}</span></div><span class="badge success">Allowed</span></div>`).join("")}
+            ${(state.profile?.permissions || []).map((p) => `<div class="list-row"><div class="grow"><strong>${esc(permissionFriendlyName(p))}</strong><span>${esc(p)} · ${esc((state.profile?.roles || []).map(roleLabel).join(", ") || "Explicit access")}</span></div><span class="badge success">Allowed</span></div>`).join("")}
           </div>
         </section>
         <section class="card">
