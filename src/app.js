@@ -32,6 +32,7 @@ import {
 } from "./utils.js";
 import { toast, openModal } from "./ui.js";
 import { createGeneration2, GENERATION2_NAV, GENERATION2_PERMISSIONS } from "./generation2.js";
+import { createGeneration3, GENERATION3_NAV, GENERATION3_PERMISSIONS } from "./generation3.js";
 
 const app = document.getElementById("app");
 
@@ -40,6 +41,7 @@ const state = {
   userRecord: null,
   profile: null,
   employee: null,
+  temporaryAccess: null,
   route: "home",
   search: ""
 };
@@ -67,7 +69,8 @@ const OWNER_PERMISSIONS = [
   "security.manage",
   "admin.organization.manage",
   "workflow.manage",
-  ...GENERATION2_PERMISSIONS
+  ...GENERATION2_PERMISSIONS,
+  ...GENERATION3_PERMISSIONS
 ];
 
 const NAV = [
@@ -77,14 +80,33 @@ const NAV = [
   { section: "Organization", id: "people", label: "People", icon: "◎", permission: "employee.view" },
   { section: "Organization", id: "approvals", label: "Approvals", icon: "✓", permission: "approval.view" },
   ...GENERATION2_NAV,
+  ...GENERATION3_NAV,
   { section: "Control", id: "security", label: "Security", icon: "◆", permission: "security.manage" },
   { section: "Control", id: "admin", label: "Administration", icon: "⚙", permission: "system.manage" }
 ];
 
+function temporaryGrantActive() {
+  if (!state.temporaryAccess || state.temporaryAccess.active === false) return false;
+  const expires = state.temporaryAccess.expiresAt?.toDate
+    ? state.temporaryAccess.expiresAt.toDate()
+    : new Date(state.temporaryAccess.expiresAt || 0);
+  return !Number.isNaN(expires.getTime()) && expires.getTime() > Date.now();
+}
+
+function effectiveClearance() {
+  const permanent = Number(state.profile?.clearanceLevel || 0);
+  const temporary = temporaryGrantActive() ? Number(state.temporaryAccess?.clearanceLevel || 0) : 0;
+  return Math.max(permanent, temporary);
+}
+
 function hasPermission(permission) {
   if (!state.profile) return false;
   if (state.profile.isSystemOwner === true) return true;
-  return Array.isArray(state.profile.permissions) && state.profile.permissions.includes(permission);
+  const permanent = Array.isArray(state.profile.permissions) && state.profile.permissions.includes(permission);
+  const temporary = temporaryGrantActive()
+    && Array.isArray(state.temporaryAccess?.permissions)
+    && state.temporaryAccess.permissions.includes(permission);
+  return permanent || temporary;
 }
 
 function classificationLevel(value = "STANDARD") {
@@ -228,11 +250,15 @@ function renderAuth(mode = "signin") {
 
 async function loadAccount(user) {
   state.user = user;
-  const userSnap = await getDoc(doc(db, "users", user.uid)).catch(() => null);
-  const profileSnap = await getDoc(doc(db, "accessProfiles", user.uid)).catch(() => null);
+  const [userSnap, profileSnap, temporarySnap] = await Promise.all([
+    getDoc(doc(db, "users", user.uid)).catch(() => null),
+    getDoc(doc(db, "accessProfiles", user.uid)).catch(() => null),
+    getDoc(doc(db, "temporaryAccess", user.uid)).catch(() => null)
+  ]);
 
   state.userRecord = userSnap?.exists() ? userSnap.data() : null;
   state.profile = profileSnap?.exists() ? profileSnap.data() : null;
+  state.temporaryAccess = temporarySnap?.exists() ? temporarySnap.data() : null;
   state.employee = null;
 
   if (state.userRecord?.employeeRecordId) {
@@ -450,7 +476,7 @@ function navHtml() {
 }
 
 function renderShell() {
-  if (!NAV.some((n) => n.id === state.route) && state.route !== "search") state.route = "home";
+  if (!NAV.some((n) => n.id === state.route) && !["search","notifications"].includes(state.route)) state.route = "home";
   app.innerHTML = `
     <div class="app-shell" id="shell">
       <div class="mobile-overlay" data-close-menu></div>
@@ -480,7 +506,7 @@ function renderShell() {
           </div>
           <div class="top-actions">
             <button class="icon-btn hide-mobile" title="Approvals" data-route="approvals">✓</button>
-            <button class="icon-btn" title="Notifications">●</button>
+            <button class="icon-btn" title="Notifications" data-route="notifications">●</button>
           </div>
         </header>
         <div id="page-content"></div>
@@ -520,7 +546,8 @@ async function renderPage() {
       search: renderGlobalSearch,
       security: renderSecurity,
       admin: renderAdmin,
-      ...generation2.renderers
+      ...generation2.renderers,
+      ...generation3.renderers
     };
     await (renderers[state.route] || renderHome)(target);
   } catch (error) {
@@ -1085,7 +1112,7 @@ async function renderSecurity(target) {
 
   target.innerHTML = `
     <div class="page">
-      ${pageHeader("Security", "Identity, effective access, classification, clearance, and audit controls.")}
+      ${pageHeader("Security", "Identity, effective access, classification, clearance, and audit controls.", hasPermission("audit.export") ? '<button class="btn" data-export-audit>Export audit CSV</button>' : "")}
       <div class="security-grid" style="margin-bottom:14px">
         <div class="security-box"><span>Account class</span><strong>${esc(state.userRecord?.protectedPrincipal ? "Protected Principal" : "Standard")}</strong></div>
         <div class="security-box"><span>Clearance</span><strong>C${Number(state.profile?.clearanceLevel || 0)}</strong></div>
@@ -1131,6 +1158,7 @@ async function renderSecurity(target) {
     const profile = accessProfiles.find((p) => p.id === row.dataset.accessProfile);
     if (profile) manageAccessProfile(profile);
   }));
+  target.querySelector("[data-export-audit]")?.addEventListener("click", () => generation3.exportAudit());
 }
 
 function manageAccessProfile(profile) {
@@ -1319,7 +1347,10 @@ function approveAccountModal(request) {
             "finance.expense.create",
             "communications.view",
             "document.view",
-            "organization.view"
+            "organization.view",
+            "access.request",
+            "dashboard.customize",
+            "notification.view"
           ],
           isSystemOwner: false,
           protectedPrincipal: false,
@@ -1359,12 +1390,28 @@ const generation2 = createGeneration2({
   firebaseMessage
 });
 
+const generation3 = createGeneration3({
+  state,
+  hasPermission,
+  effectiveClearance,
+  nextId,
+  audit,
+  safeCollection,
+  pageHeader,
+  renderPage,
+  navigate,
+  toast,
+  openModal,
+  firebaseMessage
+});
+
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     state.user = null;
     state.userRecord = null;
     state.profile = null;
     state.employee = null;
+    state.temporaryAccess = null;
     renderAuth();
     return;
   }
