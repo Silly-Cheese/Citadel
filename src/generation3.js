@@ -285,6 +285,7 @@ export function createGeneration3(ctx) {
     state,
     hasPermission,
     effectiveClearance,
+    classificationsForClearance,
     nextId,
     audit,
     safeCollection,
@@ -361,13 +362,11 @@ export function createGeneration3(ctx) {
   async function authorizedCustomers(count = 250) {
     if (!hasPermission("customer.view")) return [];
     try {
-      const snap = state.profile?.isSystemOwner === true
-        ? await getDocs(query(collection(db,"customers"),orderBy("createdAt","desc"),limit(count)))
-        : await getDocs(query(
-            collection(db,"customers"),
-            where("minimumClearance","<=",effectiveClearance()),
-            limit(count)
-          ));
+      const snap = await getDocs(query(
+        collection(db,"customers"),
+        where("classification","in",classificationsForClearance()),
+        limit(count)
+      ));
       return snap.docs
         .map(d=>({id:d.id,...d.data()}))
         .sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt));
@@ -410,11 +409,10 @@ export function createGeneration3(ctx) {
   }
 
   async function classifiedCollection(name,count=200) {
-    if(state.profile?.isSystemOwner===true) return safeCollection(name,count);
     try {
       const snap=await getDocs(query(
         collection(db,name),
-        where("minimumClearance","<=",effectiveClearance()),
+        where("classification","in",classificationsForClearance()),
         limit(count)
       ));
       return snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>asMillis(b.createdAt)-asMillis(a.createdAt));
