@@ -2,78 +2,9 @@
 
 Citadel is an independent all-in-one enterprise operations platform. The application is hosted through GitHub Pages and uses Firebase Authentication plus Cloud Firestore.
 
-## Current build — Generation 2
+## Current build — Generation 3
 
-Citadel now includes the original secure foundation plus the second-generation enterprise operations layer.
-
-### Core foundation
-
-- Firebase Email/Password authentication
-- one-time primary System Owner initialization
-- protected C10 System Owner account
-- employee/user identity separation
-- C0–C10 clearance
-- explicit permissions and roles
-- effective-access administration
-- account provisioning
-- permission-aware navigation
-- immutable audit-event records
-- responsive dark enterprise interface
-- GitHub Pages deployment
-
-### Customer operations
-
-- customer directory
-- Customer 360 profiles
-- clearance-controlled customer records
-- contact and account editing
-- internal notes
-- customer flags
-- interaction history
-- related case context
-- case management
-- classifications from STANDARD through HIGHLY_RESTRICTED
-
-### People and HR
-
-- employee directory
-- organization structure
-- departments
-- positions
-- locations
-- leave self-service
-- HR leave decisions
-- performance review records
-- employee-relations / disciplinary records
-- training and certification tracking
-- employee self-service training visibility
-
-### Enterprise operations
-
-- internal Service Desk
-- IT / HR / Payroll / Facilities / Security / Access / Procurement request catalog
-- ticket assignment and resolution
-- asset inventory and assignments
-- procurement requests and review lifecycle
-- vendor management
-- contract management
-- expense submissions and finance review
-- invoice register
-- project register
-- document registry
-- internal corporate communications
-- workflow definition registry
-
-### Governance
-
-- policy register
-- compliance findings and remediation
-- enterprise risk register
-- restricted investigations
-- Security Center
-- access profile administration
-- audit-event viewer
-- protected principal enforcement
+Generation 3 completes Citadel's current three-generation build with the intelligence, automation, security-operations, reporting, health, and enterprise-polish layer on top of the Generation 1 foundation and Generation 2 operating modules.
 
 ## Architecture
 
@@ -87,94 +18,392 @@ GitHub Pages
             +-- Cloud Firestore
 ```
 
-Firebase Authentication establishes identity. Citadel authorization is stored separately in Firestore and enforced by `firestore.rules`.
+There is no application server and no Firebase Hosting dependency.
 
-The Firebase web configuration is intentionally client-visible. Citadel never treats the Firebase web configuration as a secret.
+Firebase Authentication establishes identity. Cloud Firestore stores Citadel data and authorization state. `firestore.rules` enforces protected reads and writes.
 
-## No composite indexes
+The Firebase web configuration is intentionally visible in the browser and is not treated as a secret.
 
-Citadel Generation 2 is intentionally designed **without Firestore composite indexes**.
+---
 
-There is no `firestore.indexes.json` file and `firebase.json` deploys only Firestore rules.
+# Generation 1 — Foundation
 
-Classified record visibility uses a numeric `minimumClearance` field and single-field queries. Search and secondary filtering are performed in memory after a bounded authorized read where necessary.
+Generation 1 established:
 
-This is a deliberate architecture constraint. Do not introduce a multi-field Firestore query that requires a composite index unless the Citadel architecture is intentionally changed later.
-
-## Firebase setup
-
-### Authentication
-
-In Firebase Console for project `citadel-8bf1b`:
-
-1. Open **Authentication**.
-2. Open **Sign-in method**.
-3. Enable **Email/Password**.
-
-### Firestore
-
-Create the Cloud Firestore database and deploy the repository rules:
-
-```bash
-firebase login
-firebase use citadel-8bf1b
-firebase deploy --only firestore:rules
-```
-
-### Configure the first owner
-
-Manually create this Firestore document:
-
-**Collection:** `system`  
-**Document:** `bootstrap`
-
-```json
-{
-  "ownerEmail": "owner@example.com",
-  "initialized": false
-}
-```
-
-Use the exact same email address for the intended Firebase Authentication account.
-
-On first authorized login Citadel offers **Initialize as System Owner**. Initialization creates the first employee/user/access records, ownership record, counters, and audit event.
-
-The primary owner receives:
-
-- `EMP-000001`
-- C10 clearance
-- `SYSTEM_OWNER`
-- protected-principal status
-- organization-wide authority
-- no audit exemption
-
-## Account provisioning
-
-Creating a Firebase Auth account does not automatically grant Citadel access.
-
-Unprovisioned users submit an access request. Authorized administrators approve the request in **Administration → Account Requests**.
-
-New standard employees receive a limited starter profile for:
-
-- customer viewing within clearance
-- case viewing/creation
+- Firebase Email/Password authentication
+- one-time System Owner bootstrap
+- protected primary owner
+- employee/user identity separation
+- C0-C10 clearance architecture
+- roles and explicit permissions
+- access profiles
+- account provisioning
+- permission-aware navigation
+- customer directory
+- Customer 360
+- case management
 - employee directory
-- Service Desk requests
-- leave requests
-- personal training records
+- approvals foundation
+- Security Center
+- audit events
+- GitHub Pages deployment
+
+---
+
+# Generation 2 — Enterprise Operations
+
+Generation 2 added:
+
+## Customers and service
+
+- richer Customer 360
+- internal customer notes
+- customer flags
+- customer interactions
+- related customer cases
+- customer classification
+- customer risk context
+- case operations
+
+## Organization and people
+
+- departments
+- positions
+- locations
+- HR leave requests
+- HR leave decisions
+- performance reviews
+- disciplinary / employee-relations records
+- training and certification records
+
+## Operations
+
+- Service Desk
+- IT requests
+- HR requests
+- Payroll questions
+- Facilities requests
+- Security requests
+- Access requests
+- Procurement requests
+- internal ticket assignment and resolution
+- asset management
+- vendor management
+- contracts
+- projects
+- controlled documents
+- corporate communications
+
+## Finance and procurement
+
 - purchase requests
-- expense submissions
-- announcements
-- authorized documents
-- organization structure
+- procurement review
+- vendor sourcing context
+- expenses
+- finance review
+- invoice registry
 
-Security administrators can later adjust clearance, roles, account status, and explicit permissions from the Security Center.
+## Governance
 
-## Clearance architecture
+- policies
+- compliance findings
+- remediation tracking
+- enterprise risks
+- restricted investigations
+- workflow definitions
 
-Record classification maps to minimum clearance:
+---
 
-| Classification | Minimum |
+# Generation 3 — Intelligence, Automation, and Security
+
+Generation 3 adds the final current layer.
+
+## Enterprise Intelligence
+
+**Insights** combines authorized data from across Citadel into a cross-functional command view.
+
+It includes:
+
+- enterprise health score
+- customer population
+- open customer cases
+- Service Desk pressure
+- pending approvals
+- outstanding invoice value
+- project health
+- enterprise risk
+- compliance findings
+- security alerts
+- executive-scale metrics
+- operational pressure signals
+- governance signals
+
+Users with `dashboard.customize` can choose which intelligence widgets appear on their dashboard.
+
+## Reports
+
+Citadel now includes reusable saved reports.
+
+Reports support:
+
+- saved report definitions
+- authorized datasets
+- text filtering
+- repeat execution
+- report previews
+- CSV export
+- report ownership
+- report audit events
+
+Current datasets include:
+
+- Customers
+- Cases
+- Service Tickets
+- Assets
+- Expenses
+- Projects
+- Risks
+- Vendors
+
+Reporting intentionally performs bounded authorized reads and filters records in Citadel rather than creating complex Firestore queries.
+
+## Universal Search
+
+The global Citadel search searches authorized:
+
+- customers
+- employees
+- cases
+- assets
+- vendors
+- projects
+
+Search visibility still respects Firestore authorization and record clearance.
+
+## Workflow Automation
+
+Citadel now has a durable workflow-run engine.
+
+Workflow definitions created in the Generation 2 **Workflows** module can be launched from **Automation**.
+
+A workflow run creates:
+
+- a `workflowRuns` record
+- ordered `workflowTasks`
+- progress state
+- completion state
+- audit events
+
+Authorized operators can advance workflow tasks through Citadel.
+
+### Important execution model
+
+Citadel is hosted only through GitHub Pages and Firebase/Firestore.
+
+A static GitHub Pages app cannot perform unattended server-side background work after every user closes the site.
+
+Therefore Generation 3 automation is intentionally:
+
+**Firestore-backed + interactive execution**
+
+The workflow state is durable, but an authorized Citadel user must open the system and launch/advance work.
+
+No hidden server or Firebase Cloud Function is assumed.
+
+## SLA Management
+
+Generation 3 adds SLA tracking.
+
+### Cases
+
+New cases can receive:
+
+- 4-hour SLA
+- 8-hour SLA
+- 24-hour SLA
+- 48-hour SLA
+- 72-hour SLA
+
+Cases show:
+
+- On Track
+- Breached
+- Complete
+- Not Set
+
+### Service Desk
+
+New Service Desk requests automatically receive SLA targets based on priority:
+
+- Critical: 4 hours
+- High: 8 hours
+- Normal: 24 hours
+- Low: 72 hours
+
+System Health identifies breached Service Desk and case SLAs.
+
+## Customer Risk Intelligence
+
+Customer 360 now calculates a live customer-risk signal using visible:
+
+- active High/Critical customer flags
+- escalated cases
+- critical cases
+- number of unresolved cases
+
+The score is presented as:
+
+- Low
+- Moderate
+- High
+- Critical
+
+This is operational Citadel scoring, not an external credit or identity score.
+
+## Security Operations
+
+Generation 3 adds a dedicated **Security Operations** area.
+
+It includes:
+
+- security-alert register
+- security-alert severity
+- investigation/monitoring/resolution status
+- temporary-access requests
+- temporary-access approval
+- temporary-access denial
+- active temporary grants
+- grant revocation
+- effective temporary clearance
+
+## Temporary Access
+
+Citadel supports time-limited temporary authority.
+
+A temporary grant can include:
+
+- specific permissions
+- temporary clearance
+- business/emergency reason
+- case/reference number
+- grantor
+- expiration
+- source request
+- audit history
+
+The grant is stored under:
+
+```
+temporaryAccess/{firebaseUid}
+```
+
+Firestore Rules evaluate temporary permission and clearance during every protected request.
+
+Expired or revoked grants stop affecting authorization.
+
+### Temporary access limitations
+
+Temporary access is deliberately restricted.
+
+It cannot grant:
+
+- `system.manage`
+- `access.manage`
+- `access.temporary.manage`
+- `security.manage`
+- `employee.manage`
+- `organization.manage`
+- `admin.organization.manage`
+
+Temporary clearance is limited to **C9**.
+
+**C10 remains a permanent System Owner state.**
+
+This prevents a temporary grant from becoming a permanent privilege-escalation path.
+
+## Security Alerts
+
+Authorized security staff can:
+
+- create alerts
+- assign severity
+- categorize alerts
+- relate alerts to Citadel IDs
+- move alerts through Open / Investigating / Monitoring / Resolved / Closed
+- record response/resolution information
+
+## Security Center
+
+The main Security Center now supports:
+
+- effective clearance display
+- permanent access profiles
+- roles
+- explicit permissions
+- account status
+- protected-principal state
+- audit events
+- CSV audit export
+
+If temporary clearance is active, the Security Center shows the effective value.
+
+## System Health
+
+Generation 3 includes a live **System Health** and **Needs Attention** engine.
+
+It can detect visible issues such as:
+
+- breached case SLAs
+- stale open cases
+- breached Service Desk SLAs
+- critical Service Desk tickets
+- unassigned Service Desk tickets
+- contracts nearing renewal
+- overdue contract dates
+- critical enterprise risks
+- overdue compliance remediation
+- at-risk projects
+- lost assets
+
+System Health runs when the page is opened. It does not require background hosting.
+
+## Bulk Center
+
+Authorized managers can perform controlled bulk status changes.
+
+Supported datasets include:
+
+- Cases
+- Service Tickets
+- Assets
+- Purchase Requests
+- Expenses
+- Projects
+- Risks
+
+Records are matched using human-facing Citadel IDs.
+
+Bulk Center does **not** bypass Firestore Rules. Every document in the batch must independently pass the underlying module authorization.
+
+## Notifications
+
+The top notification control now opens a real Notification Center.
+
+Users can:
+
+- view their notifications
+- distinguish unread records
+- mark notifications read
+- mark all loaded notifications read
+
+---
+
+# Clearance Architecture
+
+Citadel classifications map to minimum clearance:
+
+| Classification | Minimum clearance |
 | --- | ---: |
 | STANDARD | C0 |
 | INTERNAL | C1 |
@@ -183,60 +412,222 @@ Record classification maps to minimum clearance:
 | RESTRICTED | C6 |
 | HIGHLY_RESTRICTED | C8 |
 
-Clearance is only one authorization dimension. A user still requires the appropriate module permission.
+Clearance never replaces module permission.
 
-Example: C8 does not grant access to investigations unless that account also has `investigation.view`.
+For example, a C8 user still requires `investigation.view` to access a restricted investigation.
 
-## Firestore security principles
+Temporary clearance can raise effective clearance up to C9 while a valid grant exists.
+
+---
+
+# No Composite Indexes
+
+Citadel is intentionally designed without Firestore composite indexes.
+
+There is **no**:
+
+```
+firestore.indexes.json
+```
+
+The Firebase configuration deploys only:
+
+```json
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}
+```
+
+Citadel avoids composite indexes by using:
+
+- single-field equality queries
+- single-field clearance queries
+- single-field ordering
+- bounded authorized reads
+- application-side filtering and sorting
+
+Do not introduce multi-field query patterns that require Firestore composite indexes unless this architecture is intentionally changed in a future generation.
+
+---
+
+# Firebase Setup
+
+## Authentication
+
+For Firebase project:
+
+```
+citadel-8bf1b
+```
+
+enable:
+
+**Authentication → Sign-in Method → Email/Password**
+
+## Firestore
+
+Create Cloud Firestore and deploy:
+
+```bash
+firebase login
+firebase use citadel-8bf1b
+firebase deploy --only firestore:rules
+```
+
+No index deployment is required.
+
+---
+
+# First System Owner
+
+Before the first Citadel initialization, manually create:
+
+**Collection**
+
+```
+system
+```
+
+**Document**
+
+```
+bootstrap
+```
+
+Fields:
+
+```json
+{
+  "ownerEmail": "owner@example.com",
+  "initialized": false
+}
+```
+
+Sign into Firebase Authentication using that exact email.
+
+Citadel will offer:
+
+**Initialize as System Owner**
+
+Initialization creates the protected owner identity and:
+
+- `EMP-000001`
+- C10 clearance
+- `SYSTEM_OWNER`
+- protected-principal status
+- organization-wide authority
+- System Ownership record
+- initial audit event
+
+The owner has no audit exemption.
+
+---
+
+# New Employee Accounts
+
+Creating a Firebase Authentication account does not grant Citadel access.
+
+Unprovisioned accounts enter the Citadel account-request flow.
+
+An authorized administrator can approve the account in:
+
+**Administration → Account Requests**
+
+A standard starter account receives limited permissions for common employee self-service and corporate access.
+
+Security administrators can then assign the person's permanent:
+
+- clearance
+- roles
+- explicit permissions
+- account status
+
+---
+
+# Human-Facing IDs
+
+Citadel maintains human-facing IDs separately from Firestore document IDs.
+
+Examples include:
+
+- `EMP-` Employees
+- `CUS-` Customers
+- `CASE-` Cases
+- `TKT-` Service Tickets
+- `AST-` Assets
+- `PRQ-` Purchase Requests
+- `VND-` Vendors
+- `CTR-` Contracts
+- `EXP-` Expenses
+- `INV-` Invoices
+- `PRJ-` Projects
+- `DOC-` Documents
+- `ANN-` Announcements
+- `POL-` Policies
+- `FND-` Compliance Findings
+- `RSK-` Risks
+- `IGT-` Investigations
+- `WFL-` Workflow Definitions
+- `RUN-` Workflow Runs
+- `RPT-` Saved Reports
+- `ACR-` Temporary Access Requests
+- `SEC-` Security Alerts
+- `DEP-` Departments
+- `POS-` Positions
+- `LOC-` Locations
+
+---
+
+# Security Principles
+
+Citadel follows these rules:
 
 - default deny
-- authenticated identity required
-- active Citadel profile required
-- module permissions enforced in rules
-- classified records enforce clearance
-- System Owner is protected but audited
-- ordinary records are archived/statused rather than hard-deleted
-- audit events cannot be edited through ordinary client access
-- self-service collections expose only the requesting employee's records unless broader permission is present
+- Firebase Auth identity required
+- active Citadel access profile required
+- permissions enforced in Firestore Rules
+- clearance enforced in Firestore Rules
+- temporary grants expire
+- C10 cannot be granted temporarily
+- protected principals cannot be casually disabled
+- critical admin authority cannot be temporarily granted
+- audit events are append-only through ordinary client access
+- hard deletion is avoided for core corporate records
+- self-service records expose only authorized user data unless broader permission exists
+- frontend-hidden buttons are never treated as security
 
-Do not replace the rules with development rules such as:
+Never replace `firestore.rules` with:
 
 ```
 allow read, write: if true;
 ```
 
-## GitHub Pages
+Doing so would invalidate Citadel's security architecture.
 
-`.github/workflows/pages.yml` deploys Citadel from `main` through GitHub Pages.
+---
 
-The workflow is configured to enable the Pages site when necessary.
+# GitHub Pages
 
-## Human-facing IDs
+Citadel deploys through:
 
-Citadel keeps human IDs separate from Firestore document IDs. Current prefixes include:
+```
+.github/workflows/pages.yml
+```
 
-- `EMP-` employees
-- `CUS-` customers
-- `CASE-` cases
-- `TKT-` service tickets
-- `AST-` assets
-- `PRQ-` purchase requests
-- `VND-` vendors
-- `CTR-` contracts
-- `EXP-` expenses
-- `INV-` invoices
-- `PRJ-` projects
-- `DOC-` documents
-- `ANN-` announcements
-- `POL-` policies
-- `FND-` compliance findings
-- `RSK-` risks
-- `IGT-` investigations
-- `WFL-` workflows
-- `DEP-` departments
-- `POS-` positions
-- `LOC-` locations
+Every push to `main` triggers GitHub Pages deployment.
 
-## Generation 3
+The workflow can initialize GitHub Pages if it has not already been enabled.
 
-Generation 3 can build on this foundation with advanced analytics, executive intelligence, deeper workflow automation, temporary/emergency access, security alerts, custom dashboards, enhanced reporting, bulk tools, and final enterprise polish.
+---
+
+# Current Build Status
+
+Generation 1: **Foundation**
+
+Generation 2: **Enterprise Operations**
+
+Generation 3: **Intelligence, Automation, Security, Analytics, and Final Enterprise Layer**
+
+The current three-generation Citadel architecture is complete and remains extensible for future specialized modules.
