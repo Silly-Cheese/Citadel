@@ -99,7 +99,7 @@ const MODULES = {
       { name: "serialNumber", label: "Serial number" },
       { name: "assetTag", label: "Asset tag" },
       { name: "status", label: "Status", type: "select", options: ["Available","Assigned","In Service","Repair","Lost","Retired"] },
-      { name: "assignedEmployeeId", label: "Assigned employee ID" },
+      { name: "assignedEmployeeId", label: "Assigned employee", type: "employee" },
       { name: "location", label: "Location" },
       { name: "notes", label: "Notes", type: "textarea", span: 2 }
     ]
@@ -155,13 +155,13 @@ const MODULES = {
     ],
     fields: [
       { name: "title", label: "Contract title", required: true, span: 2 },
-      { name: "vendorId", label: "Vendor ID" },
+      { name: "vendorId", label: "Vendor", type: "vendor" },
       { name: "vendorName", label: "Vendor name" },
       { name: "status", label: "Status", type: "select", options: ["Draft","Review","Active","Expiring","Expired","Terminated"] },
       { name: "value", label: "Contract value", type: "number" },
       { name: "startDate", label: "Start date", type: "date" },
       { name: "renewalDate", label: "Renewal / end date", type: "date" },
-      { name: "ownerEmployeeId", label: "Responsible employee ID" },
+      { name: "ownerEmployeeId", label: "Responsible employee", type: "employee" },
       { name: "classification", label: "Classification", type: "select", options: ["INTERNAL","CONFIDENTIAL","SENSITIVE","RESTRICTED"] },
       { name: "notes", label: "Contract notes", type: "textarea", span: 2 }
     ]
@@ -188,8 +188,8 @@ const MODULES = {
       { name: "name", label: "Project name", required: true, span: 2 },
       { name: "status", label: "Status", type: "select", options: ["Planning","Active","On Hold","Complete","Cancelled"] },
       { name: "health", label: "Health", type: "select", options: ["On Track","At Risk","Off Track"] },
-      { name: "ownerEmployeeId", label: "Owner employee ID" },
-      { name: "department", label: "Department" },
+      { name: "ownerEmployeeId", label: "Owner", type: "employee" },
+      { name: "department", label: "Department", type: "departmentName" },
       { name: "budget", label: "Budget", type: "number" },
       { name: "targetDate", label: "Target date", type: "date" },
       { name: "summary", label: "Executive summary", type: "textarea", span: 2 }
@@ -219,7 +219,7 @@ const MODULES = {
       { name: "documentType", label: "Document type" },
       { name: "status", label: "Status", type: "select", options: ["Draft","Active","Superseded","Archived","Legal Hold"] },
       { name: "classification", label: "Classification", type: "select", options: ["INTERNAL","CONFIDENTIAL","SENSITIVE","RESTRICTED","HIGHLY_RESTRICTED"] },
-      { name: "ownerEmployeeId", label: "Owner employee ID" },
+      { name: "ownerEmployeeId", label: "Owner", type: "employee" },
       { name: "externalUrl", label: "External document URL", span: 2 },
       { name: "description", label: "Description", type: "textarea", span: 2 }
     ]
@@ -275,7 +275,7 @@ const MODULES = {
       { name: "status", label: "Status", type: "select", options: ["Open","Monitoring","Mitigating","Accepted","Transferred","Closed"] },
       { name: "likelihood", label: "Likelihood", type: "select", options: ["Rare","Unlikely","Possible","Likely","Almost Certain"] },
       { name: "impact", label: "Impact", type: "select", options: ["Low","Moderate","High","Severe","Critical"] },
-      { name: "ownerEmployeeId", label: "Risk owner employee ID" },
+      { name: "ownerEmployeeId", label: "Risk owner", type: "employee" },
       { name: "reviewDate", label: "Next review date", type: "date" },
       { name: "description", label: "Risk description", type: "textarea", span: 2 },
       { name: "mitigation", label: "Mitigation / controls", type: "textarea", span: 2 }
@@ -305,8 +305,8 @@ const MODULES = {
       { name: "investigationType", label: "Type", type: "select", options: ["Employee Conduct","Customer Fraud","Security Incident","Financial Irregularity","Compliance","Policy Violation","Other"] },
       { name: "status", label: "Status", type: "select", options: ["Open","Triage","Active Investigation","Pending Review","Substantiated","Unsubstantiated","Closed"] },
       { name: "classification", label: "Classification", type: "select", options: ["SENSITIVE","RESTRICTED","HIGHLY_RESTRICTED"] },
-      { name: "leadEmployeeId", label: "Lead investigator employee ID" },
-      { name: "subjectReference", label: "Subject / related ID", span: 2 },
+      { name: "leadEmployeeId", label: "Lead investigator", type: "employee" },
+      { name: "subjectReference", label: "Investigation subject", type: "subject", span: 2 },
       { name: "allegationSummary", label: "Allegation / issue summary", type: "textarea", span: 2 },
       { name: "outcome", label: "Outcome / disposition", type: "textarea", span: 2 }
     ]
@@ -333,7 +333,7 @@ const MODULES = {
       { name: "name", label: "Workflow name", required: true, span: 2 },
       { name: "trigger", label: "Trigger", type: "select", options: ["Manual","Record Created","Status Changed","Approval Completed","Date Reached"] },
       { name: "status", label: "Status", type: "select", options: ["Draft","Active","Paused","Retired"] },
-      { name: "ownerEmployeeId", label: "Owner employee ID" },
+      { name: "ownerEmployeeId", label: "Owner", type: "employee" },
       { name: "version", label: "Version", type: "number", defaultValue: "1" },
       { name: "description", label: "Purpose", type: "textarea", span: 2 },
       { name: "stepsSummary", label: "Steps summary", type: "textarea", span: 2 }
@@ -376,10 +376,32 @@ function asMillis(value) {
   return date && !Number.isNaN(date.getTime()) ? date.getTime() : 0;
 }
 
-function fieldHtml(field, value = "") {
+function fieldHtml(field, value = "", refs = {}) {
   const required = field.required ? "required" : "";
   const span = field.span === 2 ? " span-2" : "";
   const safe = value ?? field.defaultValue ?? "";
+
+  const relationOptions = {
+    employee: (refs.employees || []).map(e => [e.employeeId || e.id, `${e.displayName || "Employee"} — ${e.positionName || "No position"}`]),
+    vendor: (refs.vendors || []).map(v => [v.vendorId || v.id, `${v.name || "Vendor"}${v.category ? " — " + v.category : ""}`]),
+    departmentName: (refs.departments || []).map(d => [d.name || d.departmentId || d.id, d.name || d.departmentId || "Department"]),
+    department: (refs.departments || []).map(d => [d.departmentId || d.id, d.name || d.departmentId || "Department"]),
+    position: (refs.positions || []).map(p => [p.positionId || p.id, p.name || p.positionId || "Position"]),
+    location: (refs.locations || []).map(l => [l.locationId || l.id, l.name || l.locationId || "Location"]),
+    subject: [
+      ...(refs.employees || []).map(e => [e.employeeId || e.id, `Employee · ${e.displayName || e.employeeId}`]),
+      ...(refs.customers || []).map(customer => [customer.customerId || customer.id, `Customer · ${customer.displayName || customer.customerId}`]),
+      ...(refs.vendors || []).map(v => [v.vendorId || v.id, `Vendor · ${v.name || v.vendorId}`])
+    ]
+  };
+
+  if (relationOptions[field.type]) {
+    return `<div class="field${span}"><label>${esc(field.label)}</label><select class="select" name="${esc(field.name)}" ${required}>
+      <option value="">Select ${esc(field.label.toLowerCase())}</option>
+      ${relationOptions[field.type].map(([v,l]) => `<option value="${esc(v)}" ${String(safe) === String(v) ? "selected" : ""}>${esc(l)}</option>`).join("")}
+    </select></div>`;
+  }
+
   if (field.type === "select") {
     return `<div class="field${span}"><label>${esc(field.label)}</label><select class="select" name="${esc(field.name)}" ${required}>
       ${field.options.map(o => `<option value="${esc(o)}" ${String(safe) === String(o) ? "selected" : ""}>${esc(o)}</option>`).join("")}
@@ -415,6 +437,33 @@ export function createGeneration2(ctx) {
     openModal,
     firebaseMessage
   } = ctx;
+
+  async function loadReferences() {
+    const refs={employees:[],departments:[],positions:[],locations:[],vendors:[],customers:[]};
+    const tasks=[
+      safeCollection("departments",200).then(v=>refs.departments=v),
+      safeCollection("positions",250).then(v=>refs.positions=v),
+      safeCollection("locations",200).then(v=>refs.locations=v)
+    ];
+    if(hasPermission("employee.view")||hasPermission("employee.manage")||state.profile?.isSystemOwner===true){
+      tasks.push(safeCollection("employees",300).then(v=>refs.employees=v));
+    }
+    if(hasPermission("vendor.view")||hasPermission("vendor.manage")||hasPermission("procurement.view")||state.profile?.isSystemOwner===true){
+      tasks.push(safeCollection("vendors",250).then(v=>refs.vendors=v));
+    }
+    if(hasPermission("customer.view")){
+      tasks.push((async()=>{
+        try{
+          const snap=state.profile?.isSystemOwner===true
+            ? await getDocs(query(collection(db,"customers"),orderBy("createdAt","desc"),limit(250)))
+            : await getDocs(query(collection(db,"customers"),where("minimumClearance","<=",effectiveClearance()),limit(250)));
+          refs.customers=snap.docs.map(d=>({id:d.id,...d.data()}));
+        }catch{}
+      })());
+    }
+    await Promise.all(tasks);
+    return refs;
+  }
 
   async function recordsForAccess(config, ownerField = null, selfPermission = null) {
     if (hasPermission(config.view)) {
@@ -470,15 +519,16 @@ export function createGeneration2(ctx) {
     });
   }
 
-  function editRegistryRecord(config, record = null, readOnly = false) {
+  async function editRegistryRecord(config, record = null, readOnly = false) {
     const editing = Boolean(record);
+    const refs = await loadReferences();
     openModal({
       title: `${readOnly ? "View" : editing ? "Edit" : "Create"} ${config.singular}`,
       submitLabel: readOnly ? "Close" : editing ? "Save changes" : config.createLabel,
       width: "780px",
       body: `
         ${editing ? `<div class="record-identity"><span>${esc(record[config.counter.slice(0,-1) + "Id"] || record[config.singular + "Id"] || "")}</span><strong>${esc(record.title || record.name || config.title)}</strong></div>` : ""}
-        <div class="form-grid">${config.fields.map(f => fieldHtml(f, record?.[f.name])).join("")}</div>
+        <div class="form-grid">${config.fields.map(f => fieldHtml(f, record?.[f.name], refs)).join("")}</div>
         ${readOnly ? '<div class="notice"><div><strong>Read-only access</strong>Your current authorization allows viewing this record but not modifying it.</div></div>' : ""}
       `,
       onSubmit: async (fd) => {
