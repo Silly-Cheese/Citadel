@@ -1,0 +1,43 @@
+name: Firestore Security Rules
+
+on:
+  push:
+    paths:
+      - "firestore.rules"
+      - "tests/firestore.rules.test.mjs"
+      - ".github/workflows/security-rules.yml"
+  pull_request:
+    paths:
+      - "firestore.rules"
+      - "tests/firestore.rules.test.mjs"
+      - ".github/workflows/security-rules.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rules:
+    name: Validate Firestore authorization
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install rule-test tooling
+        run: npm install --no-save firebase@latest firebase-tools@latest @firebase/rules-unit-testing@latest
+
+      - name: Run Firestore security tests
+        run: npx firebase emulators:exec --only firestore --project citadel-rules-test "node --test tests/firestore.rules.test.mjs"
